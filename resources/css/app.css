@@ -1,0 +1,187 @@
+@import 'tailwindcss';
+
+@plugin 'tailwindcss-animate';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+    --font-sans:
+        'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    --radius-lg: var(--radius);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-sm: calc(var(--radius) - 4px);
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+
+    --color-sidebar: var(--sidebar-background);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+
+    /*
+      Identidad DDRISST - MSPAS Guatemala.
+      navy   : azul institucional del escudo y del logotipo del Ministerio.
+      cyan   : celeste de la barra vertical que separa el escudo del texto.
+      teal   : verde azulado de salud; se reserva para los estados en buen
+               estado / activo del inventario de bienes.
+      amber / rose: estados de resguardo y de baja de un bien.
+    */
+    --color-mspas-navy: hsl(224, 54%, 24%);
+    --color-mspas-navy-dark: hsl(224, 56%, 16%);
+    --color-mspas-navy-light: hsl(223, 42%, 36%);
+    --color-mspas-cyan: hsl(200, 69%, 55%);
+    --color-mspas-cyan-light: hsl(200, 72%, 92%);
+    --color-mspas-teal: hsl(173, 83%, 32%);
+    --color-mspas-amber: hsl(38, 92%, 50%);
+    --color-mspas-rose: hsl(350, 74%, 48%);
+}
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentColor);
+    }
+}
+
+:root {
+    --background: hsl(210, 40%, 99%);
+    --foreground: hsl(224, 32%, 14%);
+    --card: hsl(0, 0%, 100%);
+    --card-foreground: hsl(224, 32%, 14%);
+    --popover: hsl(0, 0%, 100%);
+    --popover-foreground: hsl(224, 32%, 14%);
+
+    /* El azul institucional manda: botones, enlaces y elementos activos. */
+    --primary: hsl(224, 54%, 24%);
+    --primary-foreground: hsl(0, 0%, 100%);
+
+    --secondary: hsl(210, 40%, 96%);
+    --secondary-foreground: hsl(224, 54%, 24%);
+    --muted: hsl(210, 30%, 96%);
+    --muted-foreground: hsl(215, 16%, 45%);
+    --accent: hsl(200, 72%, 94%);
+    --accent-foreground: hsl(224, 54%, 24%);
+    --destructive: hsl(350, 74%, 48%);
+    --destructive-foreground: hsl(0, 0%, 100%);
+    --border: hsl(214, 24%, 90%);
+    --input: hsl(214, 24%, 88%);
+
+    /* El foco de teclado usa el celeste: siempre visible sobre fondo claro. */
+    --ring: hsl(200, 69%, 55%);
+
+    --chart-1: hsl(224, 54%, 34%);
+    --chart-2: hsl(200, 69%, 55%);
+    --chart-3: hsl(173, 83%, 32%);
+    --chart-4: hsl(38, 92%, 50%);
+    --chart-5: hsl(350, 74%, 48%);
+    --radius: 0.625rem;
+
+    --sidebar-background: hsl(0, 0%, 100%);
+    --sidebar-foreground: hsl(224, 20%, 32%);
+    --sidebar-primary: hsl(224, 54%, 24%);
+    --sidebar-primary-foreground: hsl(0, 0%, 100%);
+    --sidebar-accent: hsl(200, 72%, 94%);
+    --sidebar-accent-foreground: hsl(224, 54%, 24%);
+    --sidebar-border: hsl(214, 24%, 91%);
+    --sidebar-ring: hsl(200, 69%, 55%);
+}
+
+.dark {
+    --background: hsl(224, 30%, 8%);
+    --foreground: hsl(210, 30%, 96%);
+    --card: hsl(224, 28%, 12%);
+    --card-foreground: hsl(210, 30%, 96%);
+    --popover: hsl(224, 28%, 12%);
+    --popover-foreground: hsl(210, 30%, 96%);
+
+    /* En oscuro el navy no contrasta: manda el celeste. */
+    --primary: hsl(200, 69%, 55%);
+    --primary-foreground: hsl(224, 56%, 12%);
+
+    --secondary: hsl(224, 22%, 18%);
+    --secondary-foreground: hsl(210, 30%, 96%);
+    --muted: hsl(224, 22%, 16%);
+    --muted-foreground: hsl(215, 18%, 65%);
+    --accent: hsl(224, 26%, 22%);
+    --accent-foreground: hsl(200, 72%, 88%);
+    --destructive: hsl(350, 70%, 55%);
+    --destructive-foreground: hsl(0, 0%, 100%);
+    --border: hsl(224, 20%, 22%);
+    --input: hsl(224, 20%, 24%);
+    --ring: hsl(200, 69%, 55%);
+
+    --chart-1: hsl(200, 69%, 55%);
+    --chart-2: hsl(173, 60%, 45%);
+    --chart-3: hsl(38, 92%, 58%);
+    --chart-4: hsl(224, 50%, 62%);
+    --chart-5: hsl(350, 70%, 60%);
+
+    --sidebar-background: hsl(224, 30%, 10%);
+    --sidebar-foreground: hsl(210, 24%, 82%);
+    --sidebar-primary: hsl(200, 69%, 55%);
+    --sidebar-primary-foreground: hsl(224, 56%, 12%);
+    --sidebar-accent: hsl(224, 24%, 18%);
+    --sidebar-accent-foreground: hsl(200, 72%, 88%);
+    --sidebar-border: hsl(224, 20%, 20%);
+    --sidebar-ring: hsl(200, 69%, 55%);
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}
