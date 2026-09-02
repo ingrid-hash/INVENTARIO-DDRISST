@@ -147,6 +147,18 @@ class AnalizadorHoja
                 $total = round($precio * $cantidad, 2);
             }
 
+            // La columna HABER es un descargo: el bien sale de la tarjeta y su
+            // monto se resta del saldo. Sin esto los totales de las adiciones
+            // posteriores al descargo quedan inflados.
+            $haber = ValoresExcel::monto($this->celda($fila, $mapeo, 'haber')) ?? 0.0;
+
+            // Una linea de descargo no trae monto en el DEBE, pero el bien si
+            // vale lo que dice el HABER.
+            if (($total === null || $total === 0.0) && $haber > 0) {
+                $total = $haber;
+                $precio = $cantidad > 0 ? round($haber / $cantidad, 2) : $haber;
+            }
+
             $celdaFecha = $this->celda($fila, $mapeo, 'fecha');
             $fecha = ValoresExcel::fecha($celdaFecha);
 
@@ -164,6 +176,9 @@ class AnalizadorHoja
                 'cantidad' => $cantidad,
                 'precio_unitario' => $precio ?? 0.0,
                 'total' => $total ?? 0.0,
+
+                // Lo que va en la columna HABER de la tarjeta: un descargo.
+                'haber' => $haber,
 
                 // Cuenta estructurada, arrastrada de la seccion o de la celda.
                 'cuenta' => $desglose['cuenta'] ?? $cuentaVigente,

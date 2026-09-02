@@ -256,8 +256,52 @@ class TarjetaController extends Controller
             'ultimaHoja' => $hojas === [] ? 0 : end($hojas)['numero'],
             'soloPendientes' => $soloPendientes,
             'cuentaPreviaPorHoja' => $this->cuentaPreviaPorHoja($hojas),
+            'descuadres' => $this->descuadres($hojas),
             'formatearQ' => fn (float|string $valor) => number_format((float) $valor, 2, '.', ','),
         ]);
+    }
+
+    /**
+     * Adiciones donde el TOTAL que trae el papel no coincide con la suma de sus
+     * renglones.
+     *
+     * Se avisa en vez de corregirse: el papel esta firmado, y la diferencia
+     * suele significar que a la tarjeta le falta un bien que si estaba impreso.
+     *
+     * @param  array<int, array<string, mixed>>  $hojas
+     * @return array<int, array<string, mixed>>
+     */
+    private function descuadres(array $hojas): array
+    {
+        $descuadres = [];
+
+        foreach ($hojas as $hoja) {
+            foreach ($hoja['filas'] as $fila) {
+                if ($fila['tipo'] === 'total' && ! $fila['cuadra']) {
+                    $descuadres[] = [
+                        'hoja' => $hoja['numero'],
+                        'literal' => $fila['literal'],
+                        'calculado' => $fila['calculado'],
+                        'diferencia' => $fila['literal'] - $fila['calculado'],
+                    ];
+                }
+            }
+
+            // El TOTAL de cierre de la tarjeta se revisa aparte: no sale de las
+            // filas, sino del corte de la ultima hoja.
+            $papel = $hoja['total_papel'];
+
+            if ($papel !== null && abs($papel - $hoja['van']) >= 0.01) {
+                $descuadres[] = [
+                    'hoja' => $hoja['numero'],
+                    'literal' => $papel,
+                    'calculado' => $hoja['van'],
+                    'diferencia' => $papel - $hoja['van'],
+                ];
+            }
+        }
+
+        return $descuadres;
     }
 
     /**

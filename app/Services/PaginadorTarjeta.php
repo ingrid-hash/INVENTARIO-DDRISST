@@ -17,16 +17,51 @@ class PaginadorTarjeta
         $porHoja = max(1, $tarjeta->renglones_por_hoja);
         $renglones = $tarjeta->renglones()->with('bien.renglon')->orderBy('orden')->get();
 
-        $asignacion = $this->repartirEnHojas($renglones, $porHoja);
+        // Los cortes de TOTAL se resuelven sobre el documento completo antes de
+        // repartir: dependen del orden de las adiciones, no de la hoja.
+        $cierres = $this->cierresDeAdicion($renglones);
+
+        $asignacion = $this->repartirEnHojas($renglones, $porHoja, $cierres);
+
+        // El TOTAL de la tarjeta lo cierra la ultima hoja. Si el papel traia ese
+        // total escrito, es el que vale, igual que en los cortes de adicion.
+        $ultimo = $renglones->last();
+        $totalDelPapel = $ultimo?->total_corte_original !== null
+            ? (float) $ultimo->total_corte_original
+            : null;
 
         $hojas = [];
         $saldoAcumulado = 0.0;
 
         foreach ($asignacion as $numero => $delaHoja) {
             $vienen = $saldoAcumulado;
+            $filas = [];
+            $ocupadas = 0;
 
             foreach ($delaHoja as $renglon) {
                 $saldoAcumulado += (float) $renglon->debe - (float) $renglon->haber;
+
+                $filas[] = ['tipo' => 'renglon', 'renglon' => $renglon];
+                $ocupadas++;
+
+                if (! isset($cierres[$renglon->id])) {
+                    continue;
+                }
+
+                
+                $literal = $renglon->total_corte_original !== null
+                    ? (float) $renglon->total_corte_original
+                    : null;
+
+                $filas[] = [
+                    'tipo' => 'total',
+                    'monto' => $literal ?? $saldoAcumulado,
+                    'calculado' => $saldoAcumulado,
+                    'literal' => $literal,
+                    'cuadra' => $literal === null || abs($literal - $saldoAcumulado) < 0.01,
+                    'ya_impreso' => $renglon->yaSeImprimio(),
+                ];
+                $ocupadas++;
             }
 
             $hojas[] = [
@@ -34,14 +69,21 @@ class PaginadorTarjeta
                 'cara' => Tarjeta::caraDeHoja($numero),
                 'papel' => Tarjeta::papelDeHoja($numero),
                 'renglones' => $delaHoja->values(),
-                // El corte contable: lo que viene de la hoja anterior y lo que
-                // pasa a la siguiente.
+
+               
+                'filas' => $filas,
+
+               
                 'vienen' => $vienen,
                 'van' => $saldoAcumulado,
+
+              
+                'total_papel' => $numero === array_key_last($asignacion) ? $totalDelPapel : null,
+
                 'es_primera' => $numero === array_key_first($asignacion),
                 'es_ultima' => $numero === array_key_last($asignacion),
                 'capacidad' => $porHoja,
-                'libres' => max(0, $porHoja - $delaHoja->count()),
+                'libres' => max(0, $porHoja - $ocupadas),
                 'tiene_pendientes' => $delaHoja->contains(fn (TarjetaRenglon $r) => ! $r->yaSeImprimio()),
             ];
         }
@@ -49,13 +91,48 @@ class PaginadorTarjeta
         return $hojas;
     }
 
+   
+    private function cierresDeAdicion(Collection $renglones): array
+    {
+        $lista = $renglones->values();
+        $ultimo = $lista->count() - 1;
+        $cierres = [];
+
+        foreach ($lista as $indice => $renglon) {
+            if ($indice === $ultimo) {
+                continue;
+            }
+
+            if ($renglon->total_corte_original !== null) {
+                $cierres[$renglon->id] = 'papel';
+
+                continue;
+            }
+
+            // Un renglon importado sin TOTAL en el papel se queda sin corte.
+            if ($renglon->bien->importacion_id !== null) {
+                continue;
+            }
+
+            $fecha = $renglon->bien->fechaColumnaTarjeta();
+            $fechaSiguiente = $lista[$indice + 1]->bien->fechaColumnaTarjeta();
+
+            if ($fechaSiguiente !== '' && $fechaSiguiente !== $fecha) {
+                $cierres[$renglon->id] = 'calculado';
+            }
+        }
+
+        return $cierres;
+    }
+
     /**
      * Agrupa los renglones por numero de hoja.
      *
      * @param  Collection<int, TarjetaRenglon>  $renglones
+     * @param  array<int, true>  $cierres
      * @return array<int, Collection<int, TarjetaRenglon>>
      */
-    private function repartirEnHojas(Collection $renglones, int $porHoja): array
+    private function repartirEnHojas(Collection $renglones, int $porHoja, array $cierres): array
     {
         $hojas = [];
 
@@ -70,24 +147,51 @@ class PaginadorTarjeta
             return $this->ordenarYColeccionar($hojas);
         }
 
-        // La ultima hoja usada puede tener espacio libre: se aprovecha antes de
-        // pasar a una hoja nueva, que es lo que se hace hoy a mano con el papel
-        // ya impreso.
+       
+        $usado = [];
+
+        foreach ($hojas as $numero => $delaHoja) {
+            $usado[$numero] = $this->espacio($delaHoja, $cierres);
+        }
+
+       
         $hojaActual = $hojas === [] ? 1 : max(array_keys($hojas));
 
-        if (isset($hojas[$hojaActual]) && count($hojas[$hojaActual]) >= $porHoja) {
+        if (($usado[$hojaActual] ?? 0) >= $porHoja) {
             $hojaActual++;
         }
 
         foreach ($pendientes as $renglon) {
-            if (isset($hojas[$hojaActual]) && count($hojas[$hojaActual]) >= $porHoja) {
+            // El renglon y el TOTAL que lo sigue no se separan: si no caben los
+            // dos, pasan juntos a la hoja siguiente.
+            $peso = isset($cierres[$renglon->id]) ? 2 : 1;
+
+            if (($usado[$hojaActual] ?? 0) + $peso > $porHoja && ($usado[$hojaActual] ?? 0) > 0) {
                 $hojaActual++;
             }
 
             $hojas[$hojaActual][] = $renglon;
+            $usado[$hojaActual] = ($usado[$hojaActual] ?? 0) + $peso;
         }
 
         return $this->ordenarYColeccionar($hojas);
+    }
+
+    /**
+     * Renglones de papel que gasta un grupo de lineas, contando los TOTAL.
+     *
+     * @param  array<int, TarjetaRenglon>  $delaHoja
+     * @param  array<int, true>  $cierres
+     */
+    private function espacio(array $delaHoja, array $cierres): int
+    {
+        $espacio = 0;
+
+        foreach ($delaHoja as $renglon) {
+            $espacio += isset($cierres[$renglon->id]) ? 2 : 1;
+        }
+
+        return $espacio;
     }
 
     /**

@@ -220,6 +220,23 @@
     </div>
 @endif
 
+@if ($descuadres !== [])
+    <div class="aviso">
+        <strong>Hay {{ count($descuadres) }} total(es) que no cuadran con la suma de sus renglones.</strong>
+        Se imprime el total que trae el papel, porque es el que se firmó. La diferencia suele significar que
+        a la tarjeta le falta un bien que sí estaba en la hoja original.
+        <ul style="margin: 6px 0 0; padding-left: 18px">
+            @foreach ($descuadres as $descuadre)
+                <li>
+                    Hoja {{ $descuadre['hoja'] }}: el papel dice Q {{ $formatearQ($descuadre['literal']) }}
+                    y la suma da Q {{ $formatearQ($descuadre['calculado']) }}
+                    (diferencia de Q {{ $formatearQ(abs($descuadre['diferencia'])) }}).
+                </li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
 @foreach ($hojas as $hoja)
     <section class="hoja">
         {{-- El encabezado se repite en cada hoja: el formato exige que cada
@@ -281,34 +298,50 @@
 
                 @php $cuentaAnterior = $hoja['es_primera'] ? null : $cuentaPreviaPorHoja[$hoja['numero']] ?? null; @endphp
 
-                @foreach ($hoja['renglones'] as $renglon)
-                    @php
-                        $lineasCuenta = $renglon->bien->lineasColumnaCuenta();
-                        // La cuenta se escribe solo cuando cambia respecto al
-                        // renglon anterior, igual que en el documento a mano.
-                        $mostrarCuenta = $lineasCuenta !== [] && $lineasCuenta !== $cuentaAnterior;
-                        $cuentaAnterior = $lineasCuenta !== [] ? $lineasCuenta : $cuentaAnterior;
+                @foreach ($hoja['filas'] as $fila)
+                    @if ($fila['tipo'] === 'total')
+                        {{-- Cierre de una adicion: el saldo acumulado hasta aqui.
+                             Si la tarjeta venia de Excel con el total escrito, se
+                             reimprime ese, que es el que se firmo. --}}
+                        <tr @class(['corte', 'ya-impreso' => $soloPendientes && $fila['ya_impreso']])>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td style="text-align: right"><span>TOTAL</span></td>
+                            <td class="num"><span>{{ $formatearQ($fila['monto']) }}</span></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                    @else
+                        @php
+                            $renglon = $fila['renglon'];
+                            $lineasCuenta = $renglon->bien->lineasColumnaCuenta();
+                            // La cuenta se escribe solo cuando cambia respecto al
+                            // renglon anterior, igual que en el documento a mano.
+                            $mostrarCuenta = $lineasCuenta !== [] && $lineasCuenta !== $cuentaAnterior;
+                            $cuentaAnterior = $lineasCuenta !== [] ? $lineasCuenta : $cuentaAnterior;
 
-                        $oculto = $soloPendientes && $renglon->yaSeImprimio();
-                    @endphp
+                            $oculto = $soloPendientes && $renglon->yaSeImprimio();
+                        @endphp
 
-                    <tr @class(['ya-impreso' => $oculto])>
-                        <td class="mid"><span>{{ $renglon->bien->fecha_texto_original ?? $renglon->bien->anio_ingreso }}</span></td>
-                        <td class="mid">
-                            <span>
-                                @if ($mostrarCuenta)
-                                    @foreach ($lineasCuenta as $linea)
-                                        {{ $linea }}@if (! $loop->last)<br>@endif
-                                    @endforeach
-                                @endif
-                            </span>
-                        </td>
-                        <td class="mid"><span>{{ $renglon->bien->cantidad }}</span></td>
-                        <td><span>{{ $renglon->bien->descripcion }}</span></td>
-                        <td class="num"><span>{{ $renglon->debe > 0 ? $formatearQ($renglon->debe) : '' }}</span></td>
-                        <td class="num"><span>{{ $renglon->haber > 0 ? $formatearQ($renglon->haber) : '' }}</span></td>
-                        <td class="mid"><span>{{ $renglon->bien->codigo }}</span></td>
-                    </tr>
+                        <tr @class(['ya-impreso' => $oculto])>
+                            <td class="mid"><span>{{ $renglon->bien->fechaColumnaTarjeta() }}</span></td>
+                            <td class="mid">
+                                <span>
+                                    @if ($mostrarCuenta)
+                                        @foreach ($lineasCuenta as $linea)
+                                            {{ $linea }}@if (! $loop->last)<br>@endif
+                                        @endforeach
+                                    @endif
+                                </span>
+                            </td>
+                            <td class="mid"><span>{{ $renglon->bien->cantidad }}</span></td>
+                            <td><span>{{ $renglon->bien->descripcion }}</span></td>
+                            <td class="num"><span>{{ $renglon->debe > 0 ? $formatearQ($renglon->debe) : '' }}</span></td>
+                            <td class="num"><span>{{ $renglon->haber > 0 ? $formatearQ($renglon->haber) : '' }}</span></td>
+                            <td class="mid"><span>{{ $renglon->bien->codigo }}</span></td>
+                        </tr>
+                    @endif
                 @endforeach
 
                 {{-- Renglones en blanco para que la hoja conserve su altura --}}
@@ -324,7 +357,7 @@
                     <td></td>
                     <td></td>
                     <td style="text-align: right">{{ $hoja['es_ultima'] ? 'TOTAL' : 'VAN' }}</td>
-                    <td class="num">{{ $formatearQ($hoja['van']) }}</td>
+                    <td class="num">{{ $formatearQ($hoja['total_papel'] ?? $hoja['van']) }}</td>
                     <td></td>
                     <td></td>
                 </tr>
