@@ -223,6 +223,32 @@ class Bien extends Model
     }
 
     /**
+     * Lo que se imprime en la columna FECHA de la tarjeta.
+     *
+     * En los archivos importados manda el texto literal de la celda, que a
+     * veces es la fecha completa y a veces solo el ano; y cuando la celda venia
+     * vacia se queda vacia, porque asi esta el papel: la fecha se escribio una
+     * sola vez al abrir la adicion. Los bienes capturados en el sistema si
+     * traen fecha propia y se muestra formateada.
+     *
+     * Ademas es la que agrupa las adiciones para el corte de TOTAL.
+     */
+    public function fechaColumnaTarjeta(): string
+    {
+        $original = trim((string) $this->fecha_texto_original);
+
+        if ($original !== '') {
+            return $original;
+        }
+
+        if ($this->fecha_ingreso !== null) {
+            return $this->fecha_ingreso->format('d/m/Y');
+        }
+
+        return $this->anio_ingreso !== null ? (string) $this->anio_ingreso : '';
+    }
+
+    /**
      * @param  Builder<Bien>  $query
      */
     public function scopeActivos(Builder $query): void

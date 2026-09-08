@@ -215,7 +215,11 @@ class ImportadorExcel
                             'tarjeta_id' => $tarjeta->id,
                             'bien_id' => $bien->id,
                             'orden' => $tarjeta->siguienteOrden(),
-                            'debe' => $bien->total,
+
+                            // Un renglon es cargo o descargo, nunca los dos: en
+                            // el papel el monto esta en DEBE o en HABER.
+                            'debe' => $datos['haber'] > 0 ? 0 : $bien->total,
+                            'haber' => $datos['haber'],
 
                             // Si en el papel venia un TOTAL despues de este
                             // bien, se conserva tal cual: es el que se firmo.

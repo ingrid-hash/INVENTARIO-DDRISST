@@ -12,20 +12,10 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-/**
- * Toda la mecanica de la tarjeta de responsabilidad en un solo lugar: agregar y
- * quitar bienes, mantener el saldo corrido y generar una version nueva cuando el
- * documento cambia.
- *
- * Vive aparte de los controladores porque el importador de Excel va a necesitar
- * exactamente las mismas reglas.
- */
+
 class TarjetaService
 {
-    /**
-     * Abre la tarjeta de un empleado. La base de datos impide que tenga dos
-     * vigentes al mismo tiempo.
-     */
+    
     public function abrir(Empleado $empleado, ?string $numero = null, ?string $fechaApertura = null): Tarjeta
     {
         if ($empleado->tarjetaVigente()->exists()) {
@@ -50,10 +40,7 @@ class TarjetaService
         return $tarjeta;
     }
 
-    /**
-     * Agrega un bien al final de la tarjeta y lo pone bajo la custodia del
-     * empleado. El orden nunca se reordena: una adicion siempre entra al final.
-     */
+   
     public function agregarBien(Tarjeta $tarjeta, Bien $bien): TarjetaRenglon
     {
         $this->exigirVigente($tarjeta);
@@ -70,9 +57,7 @@ class TarjetaService
             ]);
         }
 
-        // La regla central: un bien no puede estar en dos tarjetas a la vez.
-        // El indice unico parcial de la base tambien lo impide, pero conviene dar
-        // un mensaje que diga con quien esta.
+        
         $vigente = $bien->asignacionVigente()->with('empleado')->first();
 
         if ($vigente) {
@@ -118,13 +103,7 @@ class TarjetaService
         });
     }
 
-    /**
-     * Retira un bien de la tarjeta y cierra su custodia.
-     *
-     * Si el renglon ya salio impreso no se borra del documento firmado: en ese
-     * caso se genera una version nueva de la tarjeta sin el bien, que es lo que
-     * se hace hoy a mano en Excel.
-     */
+    
     public function quitarBien(Tarjeta $tarjeta, Bien $bien, string $motivo = 'cambio_responsable'): Tarjeta
     {
         $this->exigirVigente($tarjeta);
@@ -157,10 +136,7 @@ class TarjetaService
                 datos: ['bien' => $bien->codigo, 'motivo' => $motivo],
             );
 
-            // Lo que decide es si ESTE renglon ya salio en papel, no si la
-            // tarjeta tiene otros impresos. Una adicion que todavia no se ha
-            // impreso se puede corregir en el sitio, porque no altera ningun
-            // documento firmado.
+            
             if (! $renglon->yaSeImprimio()) {
                 $renglon->delete();
                 $this->compactarOrden($tarjeta);
@@ -169,8 +145,7 @@ class TarjetaService
                 return $tarjeta->fresh();
             }
 
-            // El renglon ya esta en un papel que alguien firmo: se emite una
-            // version nueva sin el bien y la anterior queda como historico.
+            
             return $this->regenerar($tarjeta, excluyendo: [$bien->id]);
         });
     }
@@ -204,8 +179,7 @@ class TarjetaService
                 'renglones_por_hoja' => $tarjeta->renglones_por_hoja,
             ]);
 
-            // El orden se renumera de corrido pero se conserva la secuencia
-            // original: el documento nuevo tiene que leerse igual que el viejo.
+            
             $orden = 1;
 
             foreach ($renglones as $renglon) {
@@ -216,8 +190,7 @@ class TarjetaService
                     'debe' => $renglon->debe,
                     'haber' => $renglon->haber,
 
-                    // El total escrito en el papel viaja con el renglon: la
-                    // version nueva tiene que poder reimprimir el mismo corte.
+                   
                     'total_corte_original' => $renglon->total_corte_original,
 
                     'observaciones' => $renglon->observaciones,
@@ -247,10 +220,7 @@ class TarjetaService
         });
     }
 
-    /**
-     * Recalcula el saldo corrido de cada renglon y el total de la tarjeta. Es lo
-     * que alimenta los cortes VAN y VIENEN al cambiar de hoja.
-     */
+    
     public function recalcularSaldos(Tarjeta $tarjeta): void
     {
         $acumulado = 0.0;
@@ -264,16 +234,7 @@ class TarjetaService
         $tarjeta->updateQuietly(['saldo_total' => $acumulado]);
     }
 
-    /**
-     * Registra que un grupo de renglones salio impreso en una hoja de papel.
-     *
-     * El numero de hoja se guarda en lugar de calcularse, porque la capacidad
-     * real depende del largo de las descripciones: en los archivos del MSPAS una
-     * hoja lleva 25 bienes con descripciones cortas y 16 con descripciones
-     * largas.
-     *
-     * @param  array<int, int>  $renglonIds
-     */
+    
     public function marcarImpreso(Tarjeta $tarjeta, array $renglonIds, int $hoja): void
     {
         $tarjeta->renglones()
@@ -293,12 +254,7 @@ class TarjetaService
         );
     }
 
-    /**
-     * Cierra los huecos de la numeracion tras eliminar un renglon.
-     *
-     * Un renglon que ya salio impreso conserva su posicion: en el papel ocupa un
-     * lugar fijo y moverlo dejaria el documento sin cuadrar con la pantalla.
-     */
+    
     private function compactarOrden(Tarjeta $tarjeta): void
     {
         $orden = 1;
