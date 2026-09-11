@@ -265,6 +265,68 @@ class TarjetaService
     }
 
     /**
+     * Retracta la marca de impresion de un solo renglon.
+     *
+     * Es una correccion de control interno, para cuando se marco por error algo
+     * que no salio en papel. Va de a un bien a proposito: retractar una hoja
+     * entera dejaria sin sentido el corte de VAN que ya quedo impreso en ella.
+     *
+     * No borra tinta. Si el papel si salio, hay que descartarlo o reimprimir la
+     * hoja; por eso se exige una justificacion que queda en la bitacora.
+     */
+    public function desmarcarImpresion(Tarjeta $tarjeta, TarjetaRenglon $renglon, string $motivo): void
+    {
+        if ($renglon->tarjeta_id !== $tarjeta->id) {
+            throw ValidationException::withMessages([
+                'renglon' => 'Ese renglón no pertenece a esta tarjeta.',
+            ]);
+        }
+
+        if (! $renglon->yaSeImprimio()) {
+            throw ValidationException::withMessages([
+                'renglon' => sprintf(
+                    'El bien %s no está marcado como impreso, no hay nada que retractar.',
+                    $renglon->bien->codigo,
+                ),
+            ]);
+        }
+
+        DB::transaction(function () use ($tarjeta, $renglon, $motivo) {
+            $hoja = $renglon->hoja_fisica;
+
+            $renglon->update(['impreso_at' => null]);
+
+            // Si en esa hoja ya no queda nada impreso, para el sistema el papel
+            // vuelve a estar limpio: se retira la marca y se reabre, porque un
+            // papel sin renglones impresos no puede estar cerrado.
+            $quedanImpresos = $hoja !== null && $tarjeta->renglones()
+                ->where('hoja_fisica', $hoja)
+                ->whereNotNull('impreso_at')
+                ->exists();
+
+            if ($hoja !== null && ! $quedanImpresos) {
+                $tarjeta->hoja($hoja)->update(['impresa_at' => null, 'cerrada_at' => null]);
+            }
+
+            AuditLog::registrar(
+                evento: 'tarjeta.impresion_retractada',
+                descripcion: sprintf(
+                    'Se retractó la impresión del bien %s en la tarjeta de %s',
+                    $renglon->bien->codigo,
+                    $tarjeta->empleado->nombre_completo,
+                ),
+                modelo: $tarjeta,
+                datos: [
+                    'bien' => $renglon->bien->codigo,
+                    'descripcion' => mb_substr($renglon->bien->descripcion, 0, 160),
+                    'hoja' => $hoja,
+                    'motivo' => $motivo,
+                ],
+            );
+        });
+    }
+
+    /**
      * Mueve un renglon a otra hoja de papel.
      *
      * Solo se puede mover lo que todavia no salio en tinta: un renglon impreso

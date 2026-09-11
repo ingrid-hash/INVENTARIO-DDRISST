@@ -1,13 +1,15 @@
 import { AlertaEstado } from '@/components/alerta-estado';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { usePermisos } from '@/hooks/use-permisos';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { ArrowLeft, Crosshair, History, Info, Plus, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Crosshair, History, Info, Plus, Printer, RefreshCw, Search, Trash2, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 
 interface Renglon {
@@ -80,6 +82,13 @@ const quetzales = (v: number) =>
 export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponibles, busqueda, hojas }: Props) {
     const { puede } = usePermisos();
     const [buscar, setBuscar] = useState(busqueda);
+
+    // Fecha de corte del manchote de ensayo. Vacía significa automático: sale la
+    // tarjeta tal como está hoy en el papel, sin la adición nueva.
+    const [hasta, setHasta] = useState('');
+
+    // Renglón cuya marca de impresión se está retractando, si hay alguno.
+    const [retractando, setRetractando] = useState<Renglon | null>(null);
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Panel principal', href: '/dashboard' },
@@ -172,16 +181,55 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                 </Button>
 
                                 {renglones.some((r) => !r.impreso) && (
-                                    <Button asChild variant="outline" size="sm">
-                                        <a
-                                            href={`/inventario/tarjetas/${tarjeta.id}/imprimir?pendientes=1`}
-                                            target="_blank"
-                                            rel="noopener"
-                                        >
-                                            <Printer className="size-4" />
-                                            Imprimir solo lo nuevo
-                                        </a>
-                                    </Button>
+                                    <>
+                                        {/* Manchote de ensayo: la tarjeta como estaba antes de la
+                                            adición, para probar el calce sin arriesgar el papel firmado. */}
+                                        {renglones.some((r) => r.impreso) && (
+                                            <div className="flex items-center gap-1.5 rounded-md border px-1.5 py-1">
+                                                <Button asChild variant="ghost" size="sm">
+                                                    <a
+                                                        href={`/inventario/tarjetas/${tarjeta.id}/imprimir?ensayo=1${
+                                                            hasta ? `&hasta=${hasta}` : ''
+                                                        }`}
+                                                        target="_blank"
+                                                        rel="noopener"
+                                                    >
+                                                        <Printer className="size-4" />
+                                                        Imprimir hasta la fecha
+                                                    </a>
+                                                </Button>
+                                                <Input
+                                                    type="date"
+                                                    value={hasta}
+                                                    onChange={(e) => setHasta(e.target.value)}
+                                                    className="h-8 w-[9.5rem] text-xs"
+                                                    title="Déjelo vacío para que salga la tarjeta tal como está hoy en el papel"
+                                                    aria-label="Fecha de corte del ensayo"
+                                                />
+                                                {hasta && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => setHasta('')}
+                                                        title="Volver al automático"
+                                                    >
+                                                        Auto
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <Button asChild variant="outline" size="sm">
+                                            <a
+                                                href={`/inventario/tarjetas/${tarjeta.id}/imprimir?pendientes=1`}
+                                                target="_blank"
+                                                rel="noopener"
+                                            >
+                                                <Printer className="size-4" />
+                                                Imprimir solo lo nuevo
+                                            </a>
+                                        </Button>
+                                    </>
                                 )}
 
                                 {/* Calzar la impresión con el papel que ya salió impreso. */}
@@ -319,15 +367,32 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                             </td>
                                             {tarjeta.vigente && puede('tarjetas.editar') && (
                                                 <td className="px-3 py-2 align-top">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        title="Retirar de la tarjeta"
-                                                        className="text-destructive hover:text-destructive size-7"
-                                                        onClick={() => quitar(renglon)}
-                                                    >
-                                                        <Trash2 className="size-3.5" />
-                                                    </Button>
+                                                    <div className="flex gap-0.5">
+                                                        {/* Corrección de control interno: se marcó
+                                                            como impreso algo que no salió en papel. */}
+                                                        {renglon.impreso &&
+                                                            puede('tarjetas.desmarcar_impresion') && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    title="Se marcó como impreso por error: retractar"
+                                                                    className="size-7"
+                                                                    onClick={() => setRetractando(renglon)}
+                                                                >
+                                                                    <Undo2 className="size-3.5" />
+                                                                </Button>
+                                                            )}
+
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            title="Retirar de la tarjeta"
+                                                            className="text-destructive hover:text-destructive size-7"
+                                                            onClick={() => quitar(renglon)}
+                                                        >
+                                                            <Trash2 className="size-3.5" />
+                                                        </Button>
+                                                    </div>
                                                 </td>
                                             )}
                                         </tr>
@@ -444,7 +509,93 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                     </section>
                 )}
             </div>
+            {retractando && (
+                <DialogRetractar
+                    tarjetaId={tarjeta.id}
+                    renglon={retractando}
+                    onCerrar={() => setRetractando(null)}
+                />
+            )}
         </AppLayout>
+    );
+}
+
+/**
+ * Retracta la marca de impresión de un bien que se marcó por error.
+ *
+ * Exige una justificación porque queda asentada en la bitácora: es una
+ * corrección sobre un documento que puede estar firmado.
+ */
+function DialogRetractar({
+    tarjetaId,
+    renglon,
+    onCerrar,
+}: {
+    tarjetaId: number;
+    renglon: Renglon;
+    onCerrar: () => void;
+}) {
+    const [motivo, setMotivo] = useState('');
+    const [enviando, setEnviando] = useState(false);
+
+    const suficiente = motivo.trim().length >= 10;
+
+    const enviar = () => {
+        if (!suficiente) return;
+
+        setEnviando(true);
+        router.post(
+            `/inventario/tarjetas/${tarjetaId}/renglones/${renglon.id}/desmarcar`,
+            { motivo: motivo.trim() },
+            {
+                preserveScroll: true,
+                onSuccess: onCerrar,
+                onFinish: () => setEnviando(false),
+            },
+        );
+    };
+
+    return (
+        <Dialog open onOpenChange={(abierto) => !abierto && onCerrar()}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Retractar la impresión</DialogTitle>
+                    <DialogDescription>
+                        El bien <span className="font-mono">{renglon.codigo}</span> volverá a quedar
+                        pendiente de imprimir en la hoja {renglon.hoja_fisica}.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div className="border-amber-500/60 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200 rounded-md border px-3 py-2 text-sm">
+                    Esto no borra la tinta del papel. Si la hoja ya salió de la impresora, tendrá que
+                    descartarla o volver a imprimirla completa.
+                </div>
+
+                <div className="grid gap-2">
+                    <Label htmlFor="motivo">Justificación</Label>
+                    <textarea
+                        id="motivo"
+                        rows={3}
+                        value={motivo}
+                        onChange={(e) => setMotivo(e.target.value)}
+                        placeholder="Explique qué pasó: por ejemplo, se marcó por error y la hoja nunca se imprimió."
+                        className="border-input placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border bg-transparent px-3 py-2 text-sm focus-visible:ring-1 focus-visible:outline-none"
+                    />
+                    <p className="text-muted-foreground text-xs">
+                        Queda registrada en la bitácora con su usuario y la fecha. Mínimo 10 caracteres.
+                    </p>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={onCerrar}>
+                        Cancelar
+                    </Button>
+                    <Button onClick={enviar} disabled={!suficiente || enviando}>
+                        {enviando ? 'Retractando…' : 'Retractar impresión'}
+                    </Button>
+                </div>
+            </DialogContent>
+        </Dialog>
     );
 }
 

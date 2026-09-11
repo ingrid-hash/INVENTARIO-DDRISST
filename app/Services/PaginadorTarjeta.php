@@ -63,6 +63,10 @@ class PaginadorTarjeta
                     'literal' => $literal,
                     'cuadra' => $literal === null || abs($literal - $saldoAcumulado) < 0.01,
                     'ya_impreso' => $renglon->yaSeImprimio(),
+
+                    // El renglon que cierra la adicion: el TOTAL corre su misma
+                    // suerte cuando se decide que se imprime y que no.
+                    'renglon_id' => $renglon->id,
                 ];
                 $ocupadas++;
             }

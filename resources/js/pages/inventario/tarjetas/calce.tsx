@@ -34,7 +34,7 @@ const Y_ROTULOS = 28;
 const ALTO_ROTULOS = 6;
 const Y_PRIMERA_FILA = Y_ROTULOS + ALTO_ROTULOS;
 const ALTO_FILA = 4.6;
-const TOPE_MM = 12;
+const TOPE_MM = 18;
 
 /** Media fila: pasado eso la tinta ya invade el renglón vecino. */
 const RIESGO_VERTICAL = ALTO_FILA / 2;

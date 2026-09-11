@@ -179,6 +179,25 @@ class BienController extends Controller
 
     public function update(BienRequest $request, Bien $bien): RedirectResponse
     {
+        // Un bien que ya salio impreso en una tarjeta no se edita: el papel esta
+        // firmado y cualquier correccion tiene que dejar rastro. Primero se
+        // retracta esa impresion, que exige justificacion, y despues se corrige.
+        $impreso = $bien->renglonesTarjeta()
+            ->whereNotNull('impreso_at')
+            ->with('tarjeta.empleado:id,nombre_completo')
+            ->first();
+
+        if ($impreso !== null) {
+            throw ValidationException::withMessages([
+                'codigo' => sprintf(
+                    'Este bien ya está impreso en la hoja %s de la tarjeta de %s. '
+                    .'Para corregirlo, retracte primero esa impresión desde la tarjeta.',
+                    $impreso->hoja_fisica ?? '—',
+                    $impreso->tarjeta?->empleado?->nombre_completo ?? 'un empleado',
+                ),
+            ]);
+        }
+
         $anterior = $bien->only(['codigo', 'descripcion', 'precio_unitario', 'renglon_id']);
 
         $datos = $this->datosDelFormulario($request);

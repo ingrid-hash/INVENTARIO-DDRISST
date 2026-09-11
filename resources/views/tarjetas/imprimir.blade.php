@@ -158,6 +158,11 @@
             height: 4.6mm;
         }
 
+        /* En las filas de relleno tampoco va la raya de FIRMA: el formulario en
+           blanco tiene esas casillas vacias, y una linea suelta en una sola
+           columna se ve como un renglon a medio dibujar. */
+        .detalle .relleno td.firma { border-bottom-color: transparent; }
+
         .firmas {
             margin-top: auto;
             padding-top: 10mm;
@@ -185,6 +190,23 @@
             color: #333;
         }
 
+        /*
+          --- Modo continuar hoja ---
+          El papel que se vuelve a meter en la impresora ya trae el encabezado,
+          los rotulos de columna, la cuadricula y las firmas. Nada de eso se
+          reimprime, pero tampoco se quita: se oculta conservando su espacio. Si
+          se quitara de verdad, el contenido subiria y los renglones nuevos
+          dejarian de caer sobre su linea. Solo deja tinta el texto que falta.
+        */
+        .continuacion .encabezado,
+        .continuacion .detalle thead,
+        .continuacion .firmas,
+        .continuacion .pie { visibility: hidden; }
+
+        .continuacion .detalle th,
+        .continuacion .detalle td,
+        .continuacion .detalle td.firma { border-color: transparent; }
+
         @media print {
             html, body { background: #fff; }
 
@@ -203,7 +225,7 @@
         }
     </style>
 </head>
-<body>
+<body @class(['continuacion' => $soloPendientes])>
 
 <div class="barra">
     <div class="datos">
@@ -228,8 +250,17 @@
 @if ($soloPendientes)
     <div class="aviso">
         <strong>Modo continuar hoja.</strong>
-        Los renglones que ya salieron impresos se dejan en blanco para no imprimir encima: coloque en la
-        impresora la misma hoja de papel y solo se marcarán los renglones nuevos.
+        Solo se imprime el texto de los renglones nuevos. El encabezado, los rótulos de columna, la
+        cuadrícula y las firmas no salen, porque ya están en el papel: coloque en la impresora la misma
+        hoja y únicamente se marcarán las líneas que faltan.
+    </div>
+@elseif ($ensayo)
+    <div class="aviso">
+        <strong>Manchote de ensayo.</strong>
+        Sale la tarjeta como estaba {{ $hasta ? 'hasta el '.\Carbon\CarbonImmutable::parse($hasta)->format('d/m/Y') : 'antes de la adición nueva' }},
+        con su formato completo. Imprímalo en papel de desecho, vuelva a meter esa misma hoja y use
+        «Imprimir solo lo nuevo» para comprobar si la línea cae en su lugar antes de arriesgar el
+        documento firmado.
     </div>
 @elseif ($tarjeta->renglonesPendientesDeImprimir() > 0)
     <div class="aviso">
@@ -344,7 +375,7 @@
                         {{-- Cierre de una adicion: el saldo acumulado hasta aqui.
                              Si la tarjeta venia de Excel con el total escrito, se
                              reimprime ese, que es el que se firmo. --}}
-                        <tr @class(['corte', 'ya-impreso' => $soloPendientes && $fila['ya_impreso']])>
+                        <tr @class(['corte', 'ya-impreso' => in_array($fila['renglon_id'], $ocultos, true)])>
                             <td></td>
                             <td></td>
                             <td></td>
@@ -364,7 +395,9 @@
                             $mostrarCuenta = $lineasCuenta !== [] && $lineasCuenta !== $cuentaAnterior;
                             $cuentaAnterior = $lineasCuenta !== [] ? $lineasCuenta : $cuentaAnterior;
 
-                            $oculto = $soloPendientes && $renglon->yaSeImprimio();
+                            // Un renglon oculto ocupa su lugar pero no deja tinta:
+                            // asi el que si se imprime cae sobre su linea.
+                            $oculto = in_array($renglon->id, $ocultos, true);
 
                             // INTERINO: el formato de 2026 no tiene columna
                             // CUENTA, asi que el renglon presupuestario y sus

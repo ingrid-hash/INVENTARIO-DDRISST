@@ -16,8 +16,14 @@ class TarjetaHoja extends Model
 {
     protected $table = 'tarjeta_hojas';
 
-    /** Tope del calce. Mas alla de esto ya no es un ajuste, es otro papel. */
-    public const DESFASE_MAXIMO_MM = 12.0;
+    /**
+     * Tope del calce. Mas alla de esto ya no es un ajuste, es otro papel.
+     *
+     * Son 18 mm, poco menos de cuatro renglones: alcanza para corregir una
+     * bandeja que alimenta torcido sin permitir que la tinta se vaya tan abajo
+     * que ya no tenga nada que ver con el formulario.
+     */
+    public const DESFASE_MAXIMO_MM = 18.0;
 
     protected $fillable = [
         'tarjeta_id',

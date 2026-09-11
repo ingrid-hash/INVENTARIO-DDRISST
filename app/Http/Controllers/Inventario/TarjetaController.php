@@ -242,11 +242,23 @@ class TarjetaController extends Controller
         $tarjeta->load('empleado.unidadServicio');
 
         $hojas = $this->paginador->paginar($tarjeta);
+
         $soloPendientes = $request->boolean('pendientes');
+        $ensayo = ! $soloPendientes && $request->boolean('ensayo');
+        $hasta = $this->fechaDeCorte($request);
+
+        // Renglones que no dejan tinta pero conservan su lugar en el papel.
+        $ocultos = [];
 
         if ($soloPendientes) {
-            // Solo interesan las hojas donde queda algo por imprimir.
+            // Se continua una hoja ya impresa: lo que salio antes no se repite.
+            $ocultos = $this->renglonesImpresos($hojas, impresos: true);
             $hojas = array_values(array_filter($hojas, fn (array $h) => $h['tiene_pendientes']));
+        } elseif ($ensayo) {
+            // Manchote de ensayo: la tarjeta como estaba antes de la adicion.
+            $ocultos = $hasta !== null
+                ? $this->renglonesPosterioresA($hojas, $hasta)
+                : $this->renglonesImpresos($hojas, impresos: false);
         }
 
         return view('tarjetas.imprimir', [
@@ -256,10 +268,105 @@ class TarjetaController extends Controller
             'hojas' => $hojas,
             'ultimaHoja' => $hojas === [] ? 0 : end($hojas)['numero'],
             'soloPendientes' => $soloPendientes,
+            'ensayo' => $ensayo,
+            'hasta' => $hasta,
+            'ocultos' => $ocultos,
             'cuentaPreviaPorHoja' => $this->cuentaPreviaPorHoja($hojas),
             'descuadres' => $this->descuadres($hojas),
             'formatearQ' => fn (float|string $valor) => number_format((float) $valor, 2, '.', ','),
         ]);
+    }
+
+    /**
+     * Retracta la marca de impresion de un bien que se marco por error.
+     */
+    public function desmarcarImpresion(
+        Request $request,
+        Tarjeta $tarjeta,
+        TarjetaRenglon $renglon,
+    ): RedirectResponse {
+        $datos = $request->validate([
+            'motivo' => ['required', 'string', 'min:10', 'max:255'],
+        ], attributes: ['motivo' => 'justificación']);
+
+        $this->tarjetas->desmarcarImpresion($tarjeta, $renglon, $datos['motivo']);
+
+        return back()->with('status', sprintf(
+            'Se retractó la impresión del bien %s. Quedó constancia en la bitácora.',
+            $renglon->bien->codigo,
+        ));
+    }
+
+    /**
+     * La fecha hasta la que se quiere reproducir la tarjeta, si se indico una.
+     */
+    private function fechaDeCorte(Request $request): ?string
+    {
+        $valor = trim((string) $request->string('hasta'));
+
+        if ($valor === '') {
+            return null;
+        }
+
+        try {
+            return \Carbon\CarbonImmutable::parse($valor)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Identificadores de los renglones segun hayan salido impresos o no.
+     *
+     * @param  array<int, array<string, mixed>>  $hojas
+     * @return array<int, int>
+     */
+    private function renglonesImpresos(array $hojas, bool $impresos): array
+    {
+        $ids = [];
+
+        foreach ($hojas as $hoja) {
+            foreach ($hoja['renglones'] as $renglon) {
+                if ($renglon->yaSeImprimio() === $impresos) {
+                    $ids[] = $renglon->id;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Renglones que entraron despues de la fecha de corte.
+     *
+     * En la tarjeta la fecha se escribe una sola vez por adicion: los renglones
+     * que le siguen sin fecha propia pertenecen a esa misma adicion. Por eso la
+     * fecha se arrastra hacia abajo, o al cortar quedaria media adicion visible
+     * y media oculta.
+     *
+     * @param  array<int, array<string, mixed>>  $hojas
+     * @return array<int, int>
+     */
+    private function renglonesPosterioresA(array $hojas, string $hasta): array
+    {
+        $ids = [];
+        $vigente = null;
+
+        foreach ($hojas as $hoja) {
+            foreach ($hoja['renglones'] as $renglon) {
+                $propia = $renglon->bien->fecha_ingreso?->toDateString();
+
+                if ($propia !== null) {
+                    $vigente = $propia;
+                }
+
+                if ($vigente !== null && $vigente > $hasta) {
+                    $ids[] = $renglon->id;
+                }
+            }
+        }
+
+        return $ids;
     }
 
     /**

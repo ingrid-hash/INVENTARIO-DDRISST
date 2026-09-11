@@ -92,6 +92,12 @@ Route::middleware('auth')->prefix('inventario')->name('inventario.')->group(func
             ->name('tarjetas.renglon.mover');
     });
 
+    // Retractar la marca de impresion de un bien: correccion de control interno,
+    // con justificacion obligatoria, por eso va con permiso aparte.
+    Route::middleware('permission:tarjetas.desmarcar_impresion')
+        ->post('tarjetas/{tarjeta}/renglones/{renglon}/desmarcar', [TarjetaController::class, 'desmarcarImpresion'])
+        ->name('tarjetas.renglon.desmarcar');
+
     // --- Importacion desde Excel
     Route::middleware('permission:importaciones.ver')->group(function () {
         Route::get('importacion', [ImportacionController::class, 'index'])->name('importacion.index');

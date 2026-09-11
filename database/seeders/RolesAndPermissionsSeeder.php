@@ -60,6 +60,10 @@ class RolesAndPermissionsSeeder extends Seeder
         'tarjetas.imprimir',
         'tarjetas.regenerar',
 
+        // Retractar la marca de impresion de un bien marcado por error. Es una
+        // correccion sobre un documento firmado, por eso va aparte de editar.
+        'tarjetas.desmarcar_impresion',
+
         // Asignaciones y adiciones
         'asignaciones.ver',
         'asignaciones.crear',
