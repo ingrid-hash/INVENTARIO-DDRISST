@@ -91,6 +91,10 @@ class PaginadorTarjeta
 
                 'es_primera' => $numero === array_key_first($asignacion),
                 'es_ultima' => $numero === array_key_last($asignacion),
+
+                // Si la hoja ya termina con un TOTAL de adicion, el cierre de
+                // hoja repetiria el mismo numero justo debajo.
+                'termina_en_total' => ($filas !== [] && end($filas)['tipo'] === 'total'),
                 'capacidad' => $porHoja,
                 'libres' => max(0, $porHoja - $ocupadas),
                 'tiene_pendientes' => $delaHoja->contains(fn (TarjetaRenglon $r) => ! $r->yaSeImprimio()),
@@ -119,12 +123,19 @@ class PaginadorTarjeta
         $cierres = [];
 
         foreach ($lista as $indice => $renglon) {
-            if ($indice === $ultimo) {
+            $esUltimo = $indice === $ultimo;
+
+            // El ultimo renglon siempre cierra su adicion, este marcada como
+            // impresa o no. Asi la tanda sale del papel ya con su total y el
+            // encargado la marca despues, que es el orden en que se trabaja.
+            if ($renglon->total_corte_original !== null) {
+                $cierres[$renglon->id] = 'papel';
+
                 continue;
             }
 
-            if ($renglon->total_corte_original !== null) {
-                $cierres[$renglon->id] = 'papel';
+            if ($esUltimo) {
+                $cierres[$renglon->id] = 'calculado';
 
                 continue;
             }
@@ -134,10 +145,15 @@ class PaginadorTarjeta
                 continue;
             }
 
-            $fecha = $renglon->bien->fechaColumnaTarjeta();
-            $fechaSiguiente = $lista[$indice + 1]->bien->fechaColumnaTarjeta();
+            // Lo capturado en el sistema se agrupa por el momento en que se
+            // marco impreso, no por la fecha del bien: cada tanda que sale de
+            // la impresora es una adicion distinta, aunque dos tandas del mismo
+            // dia compartan fecha. Los renglones que aun no se han marcado
+            // comparten el momento nulo y forman la adicion en preparacion.
+            $momento = $renglon->impreso_at?->toDateTimeString();
+            $siguiente = $lista[$indice + 1]->impreso_at?->toDateTimeString();
 
-            if ($fechaSiguiente !== '' && $fechaSiguiente !== $fecha) {
+            if ($momento !== $siguiente) {
                 $cierres[$renglon->id] = 'calculado';
             }
         }

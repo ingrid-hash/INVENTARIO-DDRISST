@@ -4,6 +4,7 @@ use App\Http\Controllers\Inventario\BienController;
 use App\Http\Controllers\Inventario\EmpleadoController;
 use App\Http\Controllers\Inventario\ImportacionController;
 use App\Http\Controllers\Inventario\RenglonController;
+use App\Http\Controllers\Inventario\ReporteController;
 use App\Http\Controllers\Inventario\TarjetaController;
 use App\Http\Controllers\Inventario\UnidadServicioController;
 use Illuminate\Support\Facades\Route;
@@ -127,4 +128,13 @@ Route::middleware('auth')->prefix('inventario')->name('inventario.')->group(func
         ->put('unidades/{unidad}', [UnidadServicioController::class, 'update'])->name('unidades.update');
     Route::middleware('permission:unidades.eliminar')
         ->delete('unidades/{unidad}', [UnidadServicioController::class, 'destroy'])->name('unidades.destroy');
+
+    // --- Reportes del inventario
+    Route::middleware('permission:reportes.ver')->group(function () {
+        Route::get('reportes', [ReporteController::class, 'index'])->name('reportes.index');
+        Route::get('reportes/imprimir', [ReporteController::class, 'imprimir'])->name('reportes.imprimir');
+    });
+
+    Route::middleware('permission:reportes.exportar')
+        ->get('reportes/excel', [ReporteController::class, 'exportar'])->name('reportes.excel');
 });

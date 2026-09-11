@@ -315,9 +315,12 @@ export default function BienFormulario({ bien, catalogos, programasUsados }: Pro
                                 />
                             </Campo>
 
+                            {/* Solo se captura a mano cuando el bien viene de un
+                                archivo antiguo que trae el año pero no el día.
+                                Si hay fecha completa, el año sale de ahí. */}
                             <Campo
                                 id="anio_ingreso"
-                                etiqueta="Año, si no se conoce la fecha exacta"
+                                etiqueta="Año de ingreso"
                                 error={errors.anio_ingreso}
                             >
                                 <Input
@@ -326,10 +329,19 @@ export default function BienFormulario({ bien, catalogos, programasUsados }: Pro
                                     min={1950}
                                     max={new Date().getFullYear() + 1}
                                     placeholder="2018"
-                                    value={data.anio_ingreso}
+                                    value={
+                                        data.fecha_ingreso !== ''
+                                            ? data.fecha_ingreso.slice(0, 4)
+                                            : data.anio_ingreso
+                                    }
                                     onChange={(e) => setData('anio_ingreso', e.target.value)}
                                     disabled={data.fecha_ingreso !== ''}
                                 />
+                                <p className="text-muted-foreground text-xs">
+                                    {data.fecha_ingreso !== ''
+                                        ? 'Se toma de la fecha de ingreso.'
+                                        : 'Escríbalo solo si del bien se conoce el año pero no el día exacto.'}
+                                </p>
                             </Campo>
                         </div>
 

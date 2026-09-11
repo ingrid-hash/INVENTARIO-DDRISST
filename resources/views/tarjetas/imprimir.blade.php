@@ -11,8 +11,14 @@
           Cuentas. Las medidas estan en milimetros porque lo que manda es el
           papel, no la pantalla.
         */
+        /*
+          Papel oficio de 21.59 x 33.0 cm, apaisado. Se da la medida exacta y no
+          la palabra "legal", porque el legal estadounidense mide 35.56 cm de
+          largo: 2.5 cm mas que el oficio que se usa aca, y esa diferencia
+          basta para descuadrar la impresion sobre una hoja ya firmada.
+        */
         @page {
-            size: legal landscape;
+            size: 330mm 215.9mm;
             margin: 10mm 8mm;
         }
 
@@ -63,6 +69,28 @@
         .barra a { color: #bfe3f5; text-decoration: none; }
         .barra a:hover { text-decoration: underline; }
 
+        /* Los avisos son de consulta y estorban la vista del papel, asi que
+           van plegados. Se usa <details> nativo: no hace falta JavaScript. */
+        .avisos {
+            background: #fdf8f0;
+            border-bottom: 1px solid #b45309;
+        }
+
+        .avisos > summary {
+            padding: 8px 16px;
+            cursor: pointer;
+            color: #7c3d06;
+            font-size: 12px;
+            font-weight: 600;
+            list-style: none;
+        }
+
+        .avisos > summary::-webkit-details-marker { display: none; }
+        .avisos > summary::before { content: '\25B8  '; }
+        .avisos[open] > summary::before { content: '\25BE  '; }
+
+        .avisos .aviso:last-child { border-bottom: 0; }
+
         .aviso {
             padding: 10px 16px;
             background: #fbf1e3;
@@ -85,6 +113,12 @@
         }
 
         .encabezado { margin-bottom: 3mm; }
+
+        /* El frente del papel ya trae impreso el escudo de la Contraloria
+           General de Cuentas. Se dejan 3 cm libres arriba para no imprimir
+           encima. El reverso no lo lleva, asi que ahi se aprovecha la hoja
+           completa. */
+        .hoja.frente .encabezado { margin-top: 30mm; }
 
         .encabezado table { width: 100%; border-collapse: collapse; }
 
@@ -146,6 +180,10 @@
             text-transform: uppercase;
             font-size: 8pt;
         }
+
+        /* Doble raya bajo el total de la adicion: es como cierra una suma en el
+           documento contable. */
+        .detalle td.doble { border-bottom: 2.5pt double #000; }
 
         /* Los renglones que ya salieron impresos en este mismo papel ocupan su
            espacio pero no dejan tinta: asi se continua una hoja sin imprimir
@@ -210,7 +248,7 @@
         @media print {
             html, body { background: #fff; }
 
-            .barra, .aviso { display: none !important; }
+            .barra, .aviso, .avisos { display: none !important; }
 
             .hoja {
                 width: auto;
@@ -241,10 +279,19 @@
     <button type="button" onclick="window.print()">Imprimir</button>
 </div>
 
+@php
+    // Cuantos avisos hay, para anunciarlo sin obligar a desplegarlos.
+    $cuantosAvisos = 1
+        + (int) ($soloPendientes || $ensayo || $tarjeta->renglonesPendientesDeImprimir() > 0)
+        + (int) ($descuadres !== []);
+@endphp
+
+<details class="avisos">
+    <summary>{{ $cuantosAvisos }} {{ $cuantosAvisos === 1 ? 'aviso' : 'avisos' }} sobre esta impresión</summary>
+
 <div class="aviso">
     <strong>Imprima al 100 % y con los mismos márgenes de siempre.</strong>
-    Si usa «Ajustar a la página», el navegador encoge la hoja cerca de un 6 % y el calce guardado deja de
-    servir: la tinta caería encima de lo que ya está firmado.
+    No use «Ajustar a la página»: la tinta caería encima de lo que ya está firmado.
 </div>
 
 @if ($soloPendientes)
@@ -286,6 +333,7 @@
         </ul>
     </div>
 @endif
+</details>
 
 @foreach ($hojas as $hoja)
     {{-- El calce corre toda la impresion de esta hoja los milimetros que hagan
@@ -297,7 +345,7 @@
             : null;
     @endphp
 
-    <section class="hoja" @style([$calce => $calce !== null])>
+    <section @class(['hoja', $hoja['cara']]) @style([$calce => $calce !== null])>
         {{-- El encabezado se repite en cada hoja: el formato exige que cada
              pagina pueda leerse por si sola. El formato de 2026 pide DEPTO del
              empleado donde el anterior pedia CARGO; si el archivo viejo no lo
@@ -375,14 +423,17 @@
                         {{-- Cierre de una adicion: el saldo acumulado hasta aqui.
                              Si la tarjeta venia de Excel con el total escrito, se
                              reimprime ese, que es el que se firmo. --}}
+                        {{-- El monto del corte va en SALDO, no en DEBE: es el
+                             acumulado de la adicion, no un cargo. Y cierra con
+                             doble raya, como en el documento contable. --}}
                         <tr @class(['corte', 'ya-impreso' => in_array($fila['renglon_id'], $ocultos, true)])>
                             <td></td>
                             <td></td>
                             <td></td>
                             <td style="text-align: right"><span>TOTAL</span></td>
-                            <td class="num"><span>{{ $formatearQ($fila['monto']) }}</span></td>
                             <td></td>
                             <td></td>
+                            <td class="num doble"><span>{{ $formatearQ($fila['monto']) }}</span></td>
                             <td></td>
                             <td></td>
                         </tr>
@@ -446,7 +497,11 @@
                      no antes: mientras quede espacio libre siguen entrando
                      bienes, y un VAN impreso de mas dejaria en el papel un saldo
                      que deja de cuadrar con el proximo renglon. --}}
-                @if ($hoja['cerrada'])
+                {{-- En la ultima hoja, si el documento ya termino con el TOTAL
+                     de una adicion, el cierre repetiria el mismo numero justo
+                     debajo. En las hojas intermedias el VAN si va siempre: es
+                     el saldo que pasa a la hoja siguiente. --}}
+                @if ($hoja['cerrada'] && ! ($hoja['es_ultima'] && $hoja['termina_en_total']))
                     <tr class="corte">
                         <td></td>
                         <td></td>

@@ -344,8 +344,7 @@ export default function CalceTarjeta({ tarjeta, encabezado, hojas }: Props) {
                         <strong className="font-semibold">
                             Imprima siempre al 100 % y con los mismos márgenes.
                         </strong>{' '}
-                        Si usa «Ajustar a la página», el navegador encoge la hoja cerca de un 6 % y el
-                        calce guardado deja de servir: la tinta caería encima de lo que ya está firmado.
+                        No use «Ajustar a la página»: la tinta caería encima de lo que ya está firmado.
                     </p>
                 </div>
 

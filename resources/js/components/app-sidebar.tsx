@@ -5,8 +5,10 @@ import { usePermisos } from '@/hooks/use-permisos';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
 import {
+    BarChart3,
     Building2,
     ClipboardList,
+    DatabaseBackup,
     FileSpreadsheet,
     FileText,
     IdCard,
@@ -28,6 +30,7 @@ const navItems: NavItem[] = [
     { title: 'Empleados', url: '/inventario/empleados', icon: IdCard, permiso: 'empleados.ver' },
     { title: 'Cuentas', url: '/inventario/cuentas', icon: Tags, permiso: 'renglones.ver' },
     { title: 'Unidades de servicio', url: '/inventario/unidades', icon: Building2, permiso: 'unidades.ver' },
+    { title: 'Reportes', url: '/inventario/reportes', icon: BarChart3, permiso: 'reportes.ver' },
     { title: 'Importar de Excel', url: '/inventario/importacion', icon: FileSpreadsheet, permiso: 'importaciones.ver' },
 
     // Seguridad
@@ -35,6 +38,7 @@ const navItems: NavItem[] = [
     { title: 'Roles', url: '/admin/roles', icon: ShieldCheck, permiso: 'roles.ver' },
     { title: 'Permisos', url: '/admin/permisos', icon: ClipboardList, permiso: 'permisos.ver' },
     { title: 'Bitácora', url: '/admin/bitacora', icon: ScrollText, permiso: 'bitacora.ver' },
+    { title: 'Respaldos', url: '/admin/respaldos', icon: DatabaseBackup, permiso: 'respaldos.ver' },
 ];
 
 export function AppSidebar() {

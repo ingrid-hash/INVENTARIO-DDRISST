@@ -11,7 +11,28 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
 import { Building2, Info, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
-import { FormEventHandler, useState } from 'react';
+import { FormEventHandler, useEffect, useState } from 'react';
+
+/**
+ * Propone el código a partir de la unidad superior y del nombre del lugar.
+ *
+ * La DDRISS los forma con el código del distrito más las tres primeras letras
+ * del lugar: 211 + Chinimabe da 211-CHI. Es solo una sugerencia; el código
+ * oficial manda, y por eso el campo queda editable.
+ */
+function proponerCodigo(nombre: string, codigoPadre: string | null): string {
+    if (!codigoPadre) return '';
+
+    const lugar = nombre
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toUpperCase()
+        .split(/\s+/)
+        .filter((palabra) => palabra.length > 3)
+        .at(-1);
+
+    return lugar ? `${codigoPadre}-${lugar.slice(0, 3)}` : '';
+}
 
 interface Unidad {
     id: number;
@@ -236,6 +257,22 @@ function FormularioUnidad({
     // Al editar, una unidad no puede ser su propia superior.
     const posiblesPadres = unidades.filter((u) => u.id !== unidad?.id);
 
+    // El código se propone solo mientras el usuario no lo haya escrito él mismo,
+    // y nunca al editar: ahí el código ya está en uso dentro de los bienes.
+    const [codigoManual, setCodigoManual] = useState(editando);
+
+    useEffect(() => {
+        if (codigoManual) return;
+
+        const padre = unidades.find((u) => String(u.id) === data.padre_id);
+        const sugerido = proponerCodigo(data.nombre, padre?.codigo ?? null);
+
+        if (sugerido !== '' && sugerido !== data.codigo) {
+            setData('codigo', sugerido);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.nombre, data.padre_id, codigoManual]);
+
     return (
         <Dialog open onOpenChange={(abierto) => !abierto && onCerrar()}>
             <DialogContent className="max-w-lg">
@@ -255,10 +292,18 @@ function FormularioUnidad({
                                 className="font-mono"
                                 placeholder="211-CHI"
                                 value={data.codigo}
-                                onChange={(e) => setData('codigo', e.target.value.toUpperCase())}
+                                onChange={(e) => {
+                                    setCodigoManual(true);
+                                    setData('codigo', e.target.value.toUpperCase());
+                                }}
                                 required
                             />
                             <InputError message={errors.codigo} />
+                            {! codigoManual && data.codigo !== '' && (
+                                <p className="text-muted-foreground text-xs">
+                                    Propuesto. Cámbielo si el oficial es otro.
+                                </p>
+                            )}
                         </div>
 
                         <div className="grid gap-2">

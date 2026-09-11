@@ -31,6 +31,8 @@ class RolesAndPermissionsSeeder extends Seeder
         'permisos.editar',
         'permisos.eliminar',
         'bitacora.ver',
+        'respaldos.ver',
+        'respaldos.crear',
 
         // Catalogos
         'unidades.ver',
@@ -96,6 +98,12 @@ class RolesAndPermissionsSeeder extends Seeder
      * @var array<int, string>
      */
     private const SOLO_SUPERADMIN = [
+        // El respaldo se lleva toda la base: usuarios, contrasenas cifradas y
+        // bitacora. Por eso nace reservado al Superadministrador, aunque el
+        // permiso se puede ceder al Administrador desde la pantalla de roles.
+        'respaldos.ver',
+        'respaldos.crear',
+
         'permisos.crear',
         'permisos.editar',
         'permisos.eliminar',

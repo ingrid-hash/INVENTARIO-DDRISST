@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\PermissionController;
+use App\Http\Controllers\Admin\RespaldoController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -52,4 +53,15 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::middleware('permission:permisos.eliminar')->delete('permisos/{permission}', [PermissionController::class, 'destroy'])->name('permisos.destroy');
 
     Route::middleware('permission:bitacora.ver')->get('bitacora', [AuditLogController::class, 'index'])->name('bitacora.index');
+
+    // --- Respaldo de la base de datos
+    Route::middleware('permission:respaldos.ver')->group(function () {
+        Route::get('respaldos', [RespaldoController::class, 'index'])->name('respaldos.index');
+        Route::get('respaldos/{nombre}', [RespaldoController::class, 'descargar'])->name('respaldos.descargar');
+    });
+
+    Route::middleware('permission:respaldos.crear')->group(function () {
+        Route::post('respaldos', [RespaldoController::class, 'store'])->name('respaldos.store');
+        Route::delete('respaldos/{nombre}', [RespaldoController::class, 'destroy'])->name('respaldos.destroy');
+    });
 });

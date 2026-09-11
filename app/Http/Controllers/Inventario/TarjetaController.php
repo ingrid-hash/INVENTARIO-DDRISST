@@ -395,8 +395,14 @@ class TarjetaController extends Controller
                 }
             }
 
-            // El TOTAL de cierre de la tarjeta se revisa aparte: no sale de las
-            // filas, sino del corte de la ultima hoja.
+            // El TOTAL de cierre de la tarjeta se revisa aparte, pero solo si
+            // no salio ya como corte de adicion: cuando el ultimo renglon trae
+            // su total escrito, las dos comprobaciones miran el mismo numero y
+            // el descuadre se reportaria dos veces.
+            if ($hoja['termina_en_total']) {
+                continue;
+            }
+
             $papel = $hoja['total_papel'];
 
             if ($papel !== null && abs($papel - $hoja['van']) >= 0.01) {

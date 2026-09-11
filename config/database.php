@@ -29,6 +29,19 @@ return [
     |
     */
 
+    /*
+    |---------------------------------------------------------------------------
+    | Ruta de pg_dump
+    |---------------------------------------------------------------------------
+    |
+    | El respaldo de la base se hace con pg_dump. En las instalaciones de
+    | Windows del MSPAS no suele estar en el PATH, asi que se puede indicar su
+    | ruta exacta aqui. Si se deja vacio, el sistema lo busca solo.
+    |
+    */
+
+    'pg_dump' => env('PG_DUMP_PATH'),
+
     'connections' => [
 
         'sqlite' => [
