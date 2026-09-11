@@ -240,9 +240,20 @@ class PruebaReglasSeeder extends Seeder
         $this->afirmar('la hoja 5 es el frente del papel 3', Tarjeta::caraDeHoja(5) === 'frente' && Tarjeta::papelDeHoja(5) === 3);
 
         $vigente->renglones()->update(['hoja_fisica' => 1, 'impreso_at' => now()]);
+
+        // La capacidad se lee de la tarjeta, no se escribe a mano: el formato de
+        // 2026 subio de 25 a 27 renglones por hoja y la cuenta debe seguirlo.
+        $capacidad = $vigente->renglones_por_hoja;
+        $impresos = $vigente->renglones()->whereNotNull('impreso_at')->count();
+
         $this->afirmar(
-            'con 2 de 25 renglones impresos, quedan 23 libres en la hoja 1',
-            $vigente->fresh()->espacioEnUltimaHoja() === 23,
+            sprintf(
+                'con %d de %d renglones impresos, quedan %d libres en la hoja 1',
+                $impresos,
+                $capacidad,
+                $capacidad - $impresos,
+            ),
+            $vigente->fresh()->espacioEnUltimaHoja() === $capacidad - $impresos,
         );
 
         $this->titulo('7. La baja es un tramite, no un borrado');

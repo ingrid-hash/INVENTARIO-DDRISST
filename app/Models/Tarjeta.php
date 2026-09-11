@@ -17,6 +17,23 @@ class Tarjeta extends Model
     public const ESTADO_VIGENTE = 'vigente';
     public const ESTADO_REEMPLAZADA = 'reemplazada';
 
+    /**
+     * Renglones que caben en una hoja del formato de 2026: los rotulos van en la
+     * fila 10 y los bienes de la 11 a la 37.
+     */
+    public const RENGLONES_POR_HOJA = 27;
+
+    /**
+     * La capacidad se fija aqui y no solo en la base. El valor por omision de
+     * PostgreSQL no llega al objeto recien creado, y el paginador lo lee de
+     * inmediato: sin esto una tarjeta nueva paginaria de a un renglon por hoja.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'renglones_por_hoja' => self::RENGLONES_POR_HOJA,
+    ];
+
     protected $fillable = [
         'empleado_id',
         'unidad_servicio_id',
@@ -81,6 +98,36 @@ class Tarjeta extends Model
     public function asignaciones(): HasMany
     {
         return $this->hasMany(Asignacion::class);
+    }
+
+    /**
+     * Las hojas de papel de la tarjeta, con su calce y su estado.
+     *
+     * @return HasMany<TarjetaHoja, $this>
+     */
+    public function hojas(): HasMany
+    {
+        return $this->hasMany(TarjetaHoja::class)->orderBy('numero');
+    }
+
+    /**
+     * La hoja indicada, creandola si es la primera vez que se nombra. Una hoja
+     * nace abierta y sin calce: solo existe para poder guardarle algo.
+     */
+    public function hoja(int $numero): TarjetaHoja
+    {
+        return $this->hojas()->firstOrCreate(['numero' => $numero]);
+    }
+
+    /**
+     * Estado de las hojas indexado por numero, para no consultar una por una al
+     * paginar.
+     *
+     * @return array<int, TarjetaHoja>
+     */
+    public function hojasPorNumero(): array
+    {
+        return $this->hojas->keyBy('numero')->all();
     }
 
     public function estaVigente(): bool

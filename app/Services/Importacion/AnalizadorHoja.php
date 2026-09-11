@@ -35,11 +35,13 @@ class AnalizadorHoja
         $vistos = [];
         $desde = ($filaEncabezado ?? 0);
 
-        // La fila de rotulos puede traer ademas el primer renglon
-        // presupuestario. En el inventario de Momostenango, la fila 6 rotula
-        // "No. / MONTO / CODIGO" y en la columna de la descripcion dice
-        // "1232.03 MOBILIARIO Y EQUIPO DE OFICINA". Sin esto, los bienes de esa
-        // primera seccion entrarian sin cuenta.
+        
+        $hojaOrigen = 1;
+
+       
+        $puedeCortar = false;
+
+        
         if ($filaEncabezado !== null && isset($filas[$filaEncabezado - 1])) {
             $renglonInicial = $this->buscarRenglonPresupuestario($filas[$filaEncabezado - 1]);
 
@@ -78,6 +80,15 @@ class AnalizadorHoja
                     $bienes[count($bienes) - 1]['total_corte_original'] = $totalDeGrupo;
                 }
 
+                $descartadas++;
+
+                continue;
+            }
+
+            // Corte de hoja: lo que sigue ya se imprimio en otro papel.
+            if ($puedeCortar && $this->esCortePagina($fila)) {
+                $hojaOrigen++;
+                $puedeCortar = false;
                 $descartadas++;
 
                 continue;
@@ -200,7 +211,12 @@ class AnalizadorHoja
 
                 'observaciones' => ValoresExcel::texto($this->celda($fila, $mapeo, 'observaciones')) ?: null,
                 'responsable_en_archivo' => ValoresExcel::texto($this->celda($fila, $mapeo, 'responsable')) ?: null,
+
+                // Hoja de papel donde este bien venia impreso en el archivo.
+                'hoja_origen' => $hojaOrigen,
             ];
+
+            $puedeCortar = true;
         }
 
         return [
@@ -435,6 +451,28 @@ class AnalizadorHoja
         }
 
         return null;
+    }
+
+    /**
+     * Fila que marca el final de una hoja de papel y el comienzo de la
+     * siguiente: VAN al pie, VIENEN en la cabecera.
+     *
+     * "VIENE DE LA TARJETA" queda fuera a proposito: eso no corta una hoja, dice
+     * de que tarjeta anterior arrastra el saldo.
+     *
+     * @param  array<int, mixed>  $fila
+     */
+    private function esCortePagina(array $fila): bool
+    {
+        foreach ($fila as $celda) {
+            $texto = mb_strtoupper(ValoresExcel::texto($celda));
+
+            if ($texto !== '' && preg_match('/^(VAN|VIENEN)\b/u', $texto) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

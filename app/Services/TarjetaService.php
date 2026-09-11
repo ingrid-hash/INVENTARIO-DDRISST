@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Bien;
 use App\Models\Empleado;
 use App\Models\Tarjeta;
+use App\Models\TarjetaHoja;
 use App\Models\TarjetaRenglon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -234,12 +235,21 @@ class TarjetaService
         $tarjeta->updateQuietly(['saldo_total' => $acumulado]);
     }
 
-    
+
     public function marcarImpreso(Tarjeta $tarjeta, array $renglonIds, int $hoja): void
     {
         $tarjeta->renglones()
             ->whereIn('id', $renglonIds)
             ->update(['hoja_fisica' => $hoja, 'impreso_at' => now()]);
+
+        // La hoja de papel queda marcada la primera vez que sale de la
+        // impresora. Es lo que despues permite saber que sobre ese papel ya no
+        // se puede escribir a ciegas.
+        $papel = $tarjeta->hoja($hoja);
+
+        if (! $papel->seImprimio()) {
+            $papel->update(['impresa_at' => now()]);
+        }
 
         AuditLog::registrar(
             evento: 'tarjeta.impresa',
@@ -252,6 +262,159 @@ class TarjetaService
             ),
             modelo: $tarjeta,
         );
+    }
+
+    /**
+     * Mueve un renglon a otra hoja de papel.
+     *
+     * Solo se puede mover lo que todavia no salio en tinta: un renglon impreso
+     * ocupa un lugar fisico en un papel que la persona ya firmo, y cambiarlo de
+     * hoja en el sistema no lo mueve en el papel.
+     */
+    public function moverRenglonAHoja(Tarjeta $tarjeta, TarjetaRenglon $renglon, int $hoja): void
+    {
+        $this->exigirVigente($tarjeta);
+
+        if ($renglon->tarjeta_id !== $tarjeta->id) {
+            throw ValidationException::withMessages([
+                'renglon' => 'El renglón no pertenece a esta tarjeta.',
+            ]);
+        }
+
+        if ($renglon->yaSeImprimio()) {
+            throw ValidationException::withMessages([
+                'renglon' => sprintf(
+                    'El bien %s ya salió impreso en la hoja %d. Su posición en el papel es definitiva.',
+                    $renglon->bien->codigo,
+                    $renglon->hoja_fisica,
+                ),
+            ]);
+        }
+
+        $papel = $tarjeta->hoja($hoja);
+
+        if ($papel->estaCerrada()) {
+            throw ValidationException::withMessages([
+                'hoja' => sprintf('La hoja %d está cerrada y ya no admite bienes.', $hoja),
+            ]);
+        }
+
+        $ocupados = $tarjeta->renglones()
+            ->where('hoja_fisica', $hoja)
+            ->where('id', '!=', $renglon->id)
+            ->count();
+
+        if ($ocupados >= $tarjeta->renglones_por_hoja) {
+            throw ValidationException::withMessages([
+                'hoja' => sprintf(
+                    'La hoja %d ya tiene sus %d renglones. No cabe uno más.',
+                    $hoja,
+                    $tarjeta->renglones_por_hoja,
+                ),
+            ]);
+        }
+
+        $anterior = $renglon->hoja_fisica;
+        $renglon->update(['hoja_fisica' => $hoja]);
+
+        AuditLog::registrar(
+            evento: 'tarjeta.renglon_movido',
+            descripcion: sprintf(
+                'El bien %s pasó de la hoja %s a la hoja %d en la tarjeta de %s',
+                $renglon->bien->codigo,
+                $anterior ?? 'sin asignar',
+                $hoja,
+                $tarjeta->empleado->nombre_completo,
+            ),
+            modelo: $tarjeta,
+            datos: ['renglon_id' => $renglon->id, 'hoja_anterior' => $anterior, 'hoja_nueva' => $hoja],
+        );
+    }
+
+    /**
+     * Guarda el calce de una hoja: los milimetros que hay que correr la
+     * impresion para que la tinta caiga en los espacios libres del papel.
+     */
+    public function guardarCalce(Tarjeta $tarjeta, int $hoja, float $x, float $y): TarjetaHoja
+    {
+        $tope = TarjetaHoja::DESFASE_MAXIMO_MM;
+
+        $papel = $tarjeta->hoja($hoja);
+
+        $papel->update([
+            'desfase_x_mm' => round(max(-$tope, min($tope, $x)), 1),
+            'desfase_y_mm' => round(max(-$tope, min($tope, $y)), 1),
+        ]);
+
+        AuditLog::registrar(
+            evento: 'tarjeta.calce_guardado',
+            descripcion: sprintf(
+                'Se calibró la hoja %d de la tarjeta de %s en %s / %s mm',
+                $hoja,
+                $tarjeta->empleado->nombre_completo,
+                $papel->desfase_x_mm,
+                $papel->desfase_y_mm,
+            ),
+            modelo: $tarjeta,
+        );
+
+        return $papel;
+    }
+
+    /**
+     * Cierra una hoja: deja de admitir bienes y pasa a llevar su linea de VAN.
+     *
+     * Mientras la hoja sigue abierta el corte no se imprime, porque el saldo del
+     * papel cambiaria en cuanto entre el proximo bien.
+     */
+    public function cerrarHoja(Tarjeta $tarjeta, int $hoja): TarjetaHoja
+    {
+        $this->exigirVigente($tarjeta);
+
+        $papel = $tarjeta->hoja($hoja);
+
+        if ($papel->estaCerrada()) {
+            return $papel;
+        }
+
+        $papel->update(['cerrada_at' => now()]);
+
+        AuditLog::registrar(
+            evento: 'tarjeta.hoja_cerrada',
+            descripcion: sprintf(
+                'Se cerró la hoja %d (%s) de la tarjeta de %s',
+                $hoja,
+                Tarjeta::caraDeHoja($hoja),
+                $tarjeta->empleado->nombre_completo,
+            ),
+            modelo: $tarjeta,
+        );
+
+        return $papel;
+    }
+
+    /**
+     * Reabre una hoja cerrada por error. No borra tinta: solo permite volver a
+     * usar el espacio libre que le haya quedado.
+     */
+    public function reabrirHoja(Tarjeta $tarjeta, int $hoja): TarjetaHoja
+    {
+        $this->exigirVigente($tarjeta);
+
+        $papel = $tarjeta->hoja($hoja);
+        $papel->update(['cerrada_at' => null]);
+
+        AuditLog::registrar(
+            evento: 'tarjeta.hoja_reabierta',
+            descripcion: sprintf(
+                'Se reabrió la hoja %d de la tarjeta de %s',
+                $hoja,
+                $tarjeta->empleado->nombre_completo,
+            ),
+            modelo: $tarjeta,
+        );
+
+        return $papel;
     }
 
     

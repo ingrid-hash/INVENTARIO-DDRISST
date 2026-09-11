@@ -7,7 +7,7 @@ import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { ArrowLeft, History, Info, Plus, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Crosshair, History, Info, Plus, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 interface Renglon {
@@ -183,6 +183,14 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                         </a>
                                     </Button>
                                 )}
+
+                                {/* Calzar la impresión con el papel que ya salió impreso. */}
+                                <Button asChild variant="outline" size="sm">
+                                    <Link href={`/inventario/tarjetas/${tarjeta.id}/calce`}>
+                                        <Crosshair className="size-4" />
+                                        Calce de impresión
+                                    </Link>
+                                </Button>
                             </>
                         )}
 

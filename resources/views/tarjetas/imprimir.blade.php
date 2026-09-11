@@ -120,13 +120,26 @@
         .detalle td.num { text-align: right; }
         .detalle td.mid { text-align: center; }
 
+        /* Anchos del formato nuevo de 2026. El orden de las columnas es el del
+           papel oficial: FECHA, CODIGO, CANT., DESCRIPCION, DEBE, HABER, SALDO,
+           FIRMA y OBSEVACIONES (asi, sin la R, como viene rotulado). */
         .detalle .col-fecha { width: 22mm; }
-        .detalle .col-cuenta { width: 26mm; }
+        .detalle .col-codigo { width: 26mm; }
         .detalle .col-cant { width: 12mm; }
         .detalle .col-desc { width: auto; }
         .detalle .col-debe { width: 26mm; }
         .detalle .col-haber { width: 26mm; }
-        .detalle .col-codigo { width: 30mm; }
+        .detalle .col-saldo { width: 28mm; }
+        .detalle .col-firma { width: 28mm; }
+        .detalle .col-obs { width: 34mm; }
+
+        /* La columna FIRMA va vacia a proposito: la firma el empleado a mano. */
+        .detalle td.firma { border-bottom: 0.6pt solid #000; }
+
+        .detalle td.obs {
+            font-size: 6.5pt;
+            line-height: 1.25;
+        }
 
         .corte td {
             font-weight: bold;
@@ -206,6 +219,12 @@
     <button type="button" onclick="window.print()">Imprimir</button>
 </div>
 
+<div class="aviso">
+    <strong>Imprima al 100 % y con los mismos márgenes de siempre.</strong>
+    Si usa «Ajustar a la página», el navegador encoge la hoja cerca de un 6 % y el calce guardado deja de
+    servir: la tinta caería encima de lo que ya está firmado.
+</div>
+
 @if ($soloPendientes)
     <div class="aviso">
         <strong>Modo continuar hoja.</strong>
@@ -238,21 +257,37 @@
 @endif
 
 @foreach ($hojas as $hoja)
-    <section class="hoja">
+    {{-- El calce corre toda la impresion de esta hoja los milimetros que hagan
+         falta para que la tinta caiga en los espacios libres del papel que ya
+         salio impreso. Cada papel se alimenta distinto, por eso es por hoja. --}}
+    @php
+        $calce = ($hoja['desfase_x_mm'] != 0 || $hoja['desfase_y_mm'] != 0)
+            ? sprintf('transform: translate(%smm, %smm)', $hoja['desfase_x_mm'], $hoja['desfase_y_mm'])
+            : null;
+    @endphp
+
+    <section class="hoja" @style([$calce => $calce !== null])>
         {{-- El encabezado se repite en cada hoja: el formato exige que cada
-             pagina pueda leerse por si sola. --}}
+             pagina pueda leerse por si sola. El formato de 2026 pide DEPTO del
+             empleado donde el anterior pedia CARGO; si el archivo viejo no lo
+             traia, la casilla queda en blanco. --}}
         <div class="encabezado">
             <table>
                 <tr>
-                    <td><span class="rotulo">UNIDAD DE SERVICIO:</span> {{ $unidad?->nombre }}</td>
+                    <td colspan="2">
+                        <span class="rotulo">UNIDAD DE SERVICIO:</span> {{ $unidad?->nombre }}
+                    </td>
                     <td><span class="rotulo">MUNICIPIO:</span> {{ $unidad?->municipio }}</td>
-                    <td style="text-align: right"><span class="rotulo">DEPARTAMENTO:</span> {{ $unidad?->departamento }}</td>
+                    <td style="text-align: right">
+                        <span class="rotulo">DEPTO:</span> {{ $unidad?->departamento }}
+                    </td>
                 </tr>
                 <tr>
-                    <td><span class="rotulo">NOMBRE:</span> {{ $empleado->nombre_completo }}</td>
-                    <td><span class="rotulo">CARGO:</span> {{ $empleado->cargo }}</td>
-                    <td style="text-align: right">
-                        <span class="rotulo">DEPARTAMENTO:</span> {{ $empleado->area_trabajo }}
+                    <td colspan="2">
+                        <span class="rotulo">NOMBRE:</span> {{ $empleado->nombre_completo }}
+                    </td>
+                    <td colspan="2" style="text-align: right">
+                        <span class="rotulo">DEPTO:</span> {{ $empleado->area_trabajo }}
                     </td>
                 </tr>
             </table>
@@ -262,12 +297,14 @@
             <thead>
                 <tr>
                     <th class="col-fecha">Fecha</th>
-                    <th class="col-cuenta">Cuenta</th>
+                    <th class="col-codigo">Código</th>
                     <th class="col-cant">Cant.</th>
                     <th class="col-desc">Descripción</th>
                     <th class="col-debe">Debe</th>
                     <th class="col-haber">Haber</th>
-                    <th class="col-codigo">Código</th>
+                    <th class="col-saldo">Saldo</th>
+                    <th class="col-firma">Firma</th>
+                    <th class="col-obs">Obsevaciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -279,6 +316,8 @@
                             <td></td>
                             <td></td>
                             <td>VIENE DE LA TARJETA DE RESPONSABILIDAD {{ $tarjeta->numero }}</td>
+                            <td></td>
+                            <td></td>
                             <td class="num">{{ $hoja['vienen'] > 0 ? $formatearQ($hoja['vienen']) : '' }}</td>
                             <td></td>
                             <td></td>
@@ -290,6 +329,8 @@
                         <td></td>
                         <td></td>
                         <td>VIENEN</td>
+                        <td></td>
+                        <td></td>
                         <td class="num">{{ $formatearQ($hoja['vienen']) }}</td>
                         <td></td>
                         <td></td>
@@ -311,6 +352,8 @@
                             <td class="num"><span>{{ $formatearQ($fila['monto']) }}</span></td>
                             <td></td>
                             <td></td>
+                            <td></td>
+                            <td></td>
                         </tr>
                     @else
                         @php
@@ -322,24 +365,38 @@
                             $cuentaAnterior = $lineasCuenta !== [] ? $lineasCuenta : $cuentaAnterior;
 
                             $oculto = $soloPendientes && $renglon->yaSeImprimio();
+
+                            // INTERINO: el formato de 2026 no tiene columna
+                            // CUENTA, asi que el renglon presupuestario y sus
+                            // anexos (forma de adquisicion, programa, oficio)
+                            // se escriben en OBSEVACIONES, que es donde los
+                            // archivos del MSPAS ya ponen anotaciones de ese
+                            // tipo. Los datos siguen guardados aparte en la base;
+                            // cuando la DDRISST confirme donde va la cuenta,
+                            // cambia solo este bloque.
+                            $anotaciones = $mostrarCuenta ? $lineasCuenta : [];
+
+                            if ($renglon->observaciones) {
+                                $anotaciones[] = $renglon->observaciones;
+                            }
                         @endphp
 
                         <tr @class(['ya-impreso' => $oculto])>
                             <td class="mid"><span>{{ $renglon->bien->fechaColumnaTarjeta() }}</span></td>
-                            <td class="mid">
-                                <span>
-                                    @if ($mostrarCuenta)
-                                        @foreach ($lineasCuenta as $linea)
-                                            {{ $linea }}@if (! $loop->last)<br>@endif
-                                        @endforeach
-                                    @endif
-                                </span>
-                            </td>
+                            <td class="mid"><span>{{ $renglon->bien->codigo }}</span></td>
                             <td class="mid"><span>{{ $renglon->bien->cantidad }}</span></td>
                             <td><span>{{ $renglon->bien->descripcion }}</span></td>
                             <td class="num"><span>{{ $renglon->debe > 0 ? $formatearQ($renglon->debe) : '' }}</span></td>
                             <td class="num"><span>{{ $renglon->haber > 0 ? $formatearQ($renglon->haber) : '' }}</span></td>
-                            <td class="mid"><span>{{ $renglon->bien->codigo }}</span></td>
+                            <td class="num"><span>{{ $formatearQ($renglon->saldo) }}</span></td>
+                            <td class="firma"></td>
+                            <td class="obs">
+                                <span>
+                                    @foreach ($anotaciones as $linea)
+                                        {{ $linea }}@if (! $loop->last)<br>@endif
+                                    @endforeach
+                                </span>
+                            </td>
                         </tr>
                     @endif
                 @endforeach
@@ -347,31 +404,40 @@
                 {{-- Renglones en blanco para que la hoja conserve su altura --}}
                 @for ($i = 0; $i < $hoja['libres']; $i++)
                     <tr class="relleno">
-                        <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                        <td></td><td></td><td></td><td></td><td></td>
+                        <td></td><td></td><td></td><td></td>
                     </tr>
                 @endfor
 
-                {{-- Cierre de hoja --}}
-                <tr class="corte">
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td style="text-align: right">{{ $hoja['es_ultima'] ? 'TOTAL' : 'VAN' }}</td>
-                    <td class="num">{{ $formatearQ($hoja['total_papel'] ?? $hoja['van']) }}</td>
-                    <td></td>
-                    <td></td>
-                </tr>
+                {{-- Cierre de hoja. El VAN se escribe cuando la hoja se cierra,
+                     no antes: mientras quede espacio libre siguen entrando
+                     bienes, y un VAN impreso de mas dejaria en el papel un saldo
+                     que deja de cuadrar con el proximo renglon. --}}
+                @if ($hoja['cerrada'])
+                    <tr class="corte">
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td style="text-align: right">{{ $hoja['es_ultima'] ? 'TOTAL' : 'VAN' }}</td>
+                        <td></td>
+                        <td></td>
+                        <td class="num">{{ $formatearQ($hoja['total_papel'] ?? $hoja['van']) }}</td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                @endif
             </tbody>
         </table>
 
+        {{-- Rotulos de firma del formato de 2026. --}}
         <div class="firmas">
             <div>
                 <div style="height: 8mm"></div>
-                <div class="linea">Empleado responsable</div>
+                <div class="linea">Responsable encargado de inventarios</div>
             </div>
             <div>
                 <div style="height: 8mm"></div>
-                <div class="linea">Encargado de inventarios</div>
+                <div class="linea">Encargada de inventarios</div>
             </div>
             <div>
                 <div style="height: 8mm"></div>
@@ -381,7 +447,12 @@
 
         <div class="pie">
             <span>Hoja {{ $hoja['numero'] }} de {{ $ultimaHoja }} · {{ ucfirst($hoja['cara']) }} del papel {{ $hoja['papel'] }}</span>
-            <span>{{ $tarjeta->numero }} · versión {{ $tarjeta->version }}</span>
+            <span>
+                @if ($hoja['desfase_x_mm'] != 0 || $hoja['desfase_y_mm'] != 0)
+                    calce {{ $hoja['desfase_x_mm'] }} / {{ $hoja['desfase_y_mm'] }} mm ·
+                @endif
+                {{ $tarjeta->numero }} · versión {{ $tarjeta->version }}
+            </span>
         </div>
     </section>
 @endforeach
