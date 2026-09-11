@@ -17,6 +17,9 @@ class PaginadorTarjeta
         $porHoja = max(1, $tarjeta->renglones_por_hoja);
         $renglones = $tarjeta->renglones()->with('bien.renglon')->orderBy('orden')->get();
 
+        // El calce y el estado de cada papel viven aparte de los renglones.
+        $estadoDeHoja = $tarjeta->hojasPorNumero();
+
         // Los cortes de TOTAL se resuelven sobre el documento completo antes de
         // repartir: dependen del orden de las adiciones, no de la hoja.
         $cierres = $this->cierresDeAdicion($renglones);
@@ -64,20 +67,22 @@ class PaginadorTarjeta
                 $ocupadas++;
             }
 
+            $estado = $estadoDeHoja[$numero] ?? null;
+
             $hojas[] = [
                 'numero' => $numero,
                 'cara' => Tarjeta::caraDeHoja($numero),
                 'papel' => Tarjeta::papelDeHoja($numero),
                 'renglones' => $delaHoja->values(),
 
-               
+
                 'filas' => $filas,
 
-               
+
                 'vienen' => $vienen,
                 'van' => $saldoAcumulado,
 
-              
+
                 'total_papel' => $numero === array_key_last($asignacion) ? $totalDelPapel : null,
 
                 'es_primera' => $numero === array_key_first($asignacion),
@@ -85,6 +90,17 @@ class PaginadorTarjeta
                 'capacidad' => $porHoja,
                 'libres' => max(0, $porHoja - $ocupadas),
                 'tiene_pendientes' => $delaHoja->contains(fn (TarjetaRenglon $r) => ! $r->yaSeImprimio()),
+
+                // Una hoja cerrada ya no admite bienes y lleva su linea de VAN.
+                // Mientras siga abierta el corte no se imprime: el saldo del
+                // papel cambiaria en cuanto entre el proximo bien.
+                'cerrada' => $estado?->estaCerrada() ?? false,
+                'impresa' => $estado?->seImprimio() ?? false,
+
+                // Milimetros que hay que correr la impresion para que la tinta
+                // caiga en los espacios libres de este papel.
+                'desfase_x_mm' => $estado?->desfase_x_mm ?? 0.0,
+                'desfase_y_mm' => $estado?->desfase_y_mm ?? 0.0,
             ];
         }
 

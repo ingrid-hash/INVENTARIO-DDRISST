@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Bien;
 use App\Models\Empleado;
 use App\Models\Tarjeta;
+use App\Models\TarjetaHoja;
 use App\Models\TarjetaRenglon;
 use App\Models\UnidadServicio;
 use App\Services\PaginadorTarjeta;
@@ -332,6 +333,131 @@ class TarjetaController extends Controller
         }
 
         return $previas;
+    }
+
+    /**
+     * Pantalla de calce: alinear la impresion sobre una hoja que ya salio
+     * impresa y acomodar los renglones que todavia no estan en tinta.
+     */
+    public function calce(Tarjeta $tarjeta): Response
+    {
+        $tarjeta->load('empleado.unidadServicio');
+
+        $hojas = $this->paginador->paginar($tarjeta);
+
+        return Inertia::render('inventario/tarjetas/calce', [
+            'tarjeta' => [
+                'id' => $tarjeta->id,
+                'numero' => $tarjeta->numero,
+                'version' => $tarjeta->version,
+                'vigente' => $tarjeta->estaVigente(),
+                'renglones_por_hoja' => $tarjeta->renglones_por_hoja,
+            ],
+            'encabezado' => [
+                'unidad_servicio' => $tarjeta->empleado->unidadServicio?->nombre,
+                'municipio' => $tarjeta->empleado->unidadServicio?->municipio,
+                'departamento' => $tarjeta->empleado->unidadServicio?->departamento,
+                'nombre' => $tarjeta->empleado->nombre_completo,
+                'area_trabajo' => $tarjeta->empleado->area_trabajo,
+            ],
+            'hojas' => array_map(fn (array $hoja) => [
+                'numero' => $hoja['numero'],
+                'cara' => $hoja['cara'],
+                'papel' => $hoja['papel'],
+                'capacidad' => $hoja['capacidad'],
+                'libres' => $hoja['libres'],
+                'cerrada' => $hoja['cerrada'],
+                'impresa' => $hoja['impresa'],
+                'desfase_x_mm' => (float) $hoja['desfase_x_mm'],
+                'desfase_y_mm' => (float) $hoja['desfase_y_mm'],
+                'vienen' => (float) $hoja['vienen'],
+                'renglones' => $hoja['renglones']->map(fn (TarjetaRenglon $r) => [
+                    'id' => $r->id,
+                    'orden' => $r->orden,
+                    'codigo' => $r->bien->codigo,
+                    'descripcion' => $r->bien->descripcion,
+                    'cantidad' => $r->bien->cantidad,
+                    'fecha' => $r->bien->fechaColumnaTarjeta(),
+                    'debe' => (float) $r->debe,
+                    'haber' => (float) $r->haber,
+                    'saldo' => (float) $r->saldo,
+                    'observaciones' => $r->observaciones,
+                    'lineas_cuenta' => $r->bien->lineasColumnaCuenta(),
+                    'impreso' => $r->yaSeImprimio(),
+                ])->values(),
+            ], $hojas),
+        ]);
+    }
+
+    /** Guarda los milimetros de calce de una hoja. */
+    public function guardarCalce(Request $request, Tarjeta $tarjeta): RedirectResponse
+    {
+        $tope = TarjetaHoja::DESFASE_MAXIMO_MM;
+
+        $datos = $request->validate([
+            'hoja' => ['required', 'integer', 'min:1', 'max:999'],
+            'desfase_x_mm' => ['required', 'numeric', "min:-{$tope}", "max:{$tope}"],
+            'desfase_y_mm' => ['required', 'numeric', "min:-{$tope}", "max:{$tope}"],
+        ], attributes: [
+            'hoja' => 'número de hoja',
+            'desfase_x_mm' => 'desplazamiento horizontal',
+            'desfase_y_mm' => 'desplazamiento vertical',
+        ]);
+
+        $papel = $this->tarjetas->guardarCalce(
+            $tarjeta,
+            $datos['hoja'],
+            (float) $datos['desfase_x_mm'],
+            (float) $datos['desfase_y_mm'],
+        );
+
+        return back()->with('status', sprintf(
+            'Se guardó el calce de la hoja %d: %s / %s mm.',
+            $papel->numero,
+            $papel->desfase_x_mm,
+            $papel->desfase_y_mm,
+        ));
+    }
+
+    /** Pasa un renglon todavia sin imprimir a otra hoja de papel. */
+    public function moverRenglon(Request $request, Tarjeta $tarjeta, TarjetaRenglon $renglon): RedirectResponse
+    {
+        $datos = $request->validate([
+            'hoja' => ['required', 'integer', 'min:1', 'max:999'],
+        ], attributes: ['hoja' => 'número de hoja']);
+
+        $this->tarjetas->moverRenglonAHoja($tarjeta, $renglon, $datos['hoja']);
+
+        return back()->with('status', sprintf(
+            'El bien %s pasó a la hoja %d.',
+            $renglon->bien->codigo,
+            $datos['hoja'],
+        ));
+    }
+
+    /** Cierra o reabre una hoja. Solo la hoja cerrada lleva su linea de VAN. */
+    public function cambiarEstadoHoja(Request $request, Tarjeta $tarjeta): RedirectResponse
+    {
+        $datos = $request->validate([
+            'hoja' => ['required', 'integer', 'min:1', 'max:999'],
+            'cerrada' => ['required', 'boolean'],
+        ], attributes: ['hoja' => 'número de hoja']);
+
+        if ($datos['cerrada']) {
+            $this->tarjetas->cerrarHoja($tarjeta, $datos['hoja']);
+
+            return back()->with('status', sprintf(
+                'Se cerró la hoja %d. Al imprimirla saldrá su línea de VAN.',
+                $datos['hoja'],
+            ));
+        }
+
+        $this->tarjetas->reabrirHoja($tarjeta, $datos['hoja']);
+
+        return back()->with('status', sprintf(
+            'Se reabrió la hoja %d. Vuelve a admitir bienes y no se le imprime el VAN.',
+            $datos['hoja'],
+        ));
     }
 
     /**

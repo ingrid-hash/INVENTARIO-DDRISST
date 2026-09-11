@@ -80,6 +80,16 @@ Route::middleware('auth')->prefix('inventario')->name('inventario.')->group(func
             ->name('tarjetas.imprimir');
         Route::post('tarjetas/{tarjeta}/impresion', [TarjetaController::class, 'marcarImpreso'])
             ->name('tarjetas.impresion');
+
+        // Calce: alinear la impresion con el papel que ya salio impreso.
+        Route::get('tarjetas/{tarjeta}/calce', [TarjetaController::class, 'calce'])
+            ->name('tarjetas.calce');
+        Route::post('tarjetas/{tarjeta}/calce', [TarjetaController::class, 'guardarCalce'])
+            ->name('tarjetas.calce.guardar');
+        Route::post('tarjetas/{tarjeta}/hoja', [TarjetaController::class, 'cambiarEstadoHoja'])
+            ->name('tarjetas.hoja.estado');
+        Route::post('tarjetas/{tarjeta}/renglones/{renglon}/hoja', [TarjetaController::class, 'moverRenglon'])
+            ->name('tarjetas.renglon.mover');
     });
 
     // --- Importacion desde Excel

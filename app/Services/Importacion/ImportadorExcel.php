@@ -124,8 +124,13 @@ class ImportadorExcel
         $importados = 0;
         $provisionales = 0;
 
-        
+
         $posiciones = [];
+
+        // De que hoja de papel venia impreso cada bien, segun los VAN y VIENEN
+        // del archivo. Se aplica al final, cuando ya se sabe cuantos bienes cayo
+        // en cada hoja.
+        $hojasDeOrigen = [];
 
         // Un bien que el archivo no numera solo se puede reconocer por su
         // descripcion. Se arma una bolsa de candidatos y cada bien sin codigo va
@@ -175,7 +180,7 @@ class ImportadorExcel
             try {
                 DB::transaction(function () use (
                     $datos, $unidad, $cuentas, $importacion, $tarjeta,
-                    &$importados, &$provisionales, &$posiciones
+                    &$importados, &$provisionales, &$posiciones, &$hojasDeOrigen
                 ) {
                     // Sin codigo en el archivo, el sistema pone uno propio para
                     // que el bien no se pierda.
@@ -235,6 +240,7 @@ class ImportadorExcel
                         ]);
 
                         $posiciones[$bien->id] = $datos['posicion'];
+                        $hojasDeOrigen[$bien->id] = $datos['hoja_origen'] ?? 1;
                     }
 
                     $importados++;
@@ -262,6 +268,7 @@ class ImportadorExcel
 
         if ($tarjeta !== null) {
             $this->ordenarSegunArchivo($tarjeta->fresh(), $posiciones);
+            $this->aplicarHojasDelArchivo($tarjeta->fresh(), $hojasDeOrigen);
             $this->tarjetas->recalcularSaldos($tarjeta->fresh());
         }
 
@@ -313,7 +320,44 @@ class ImportadorExcel
         return trim((string) preg_replace('/\s+/', ' ', $clave));
     }
 
-    
+    /**
+     * Reparte los renglones en las hojas de papel que traia el archivo.
+     *
+     * Es una propuesta, no una decision: los renglones quedan asignados a su
+     * hoja pero sin marcar como impresos, asi que quien importa puede moverlos
+     * en la pantalla de calce si el reparto no cayo donde esperaba.
+     *
+     * Si alguna hoja del archivo trae mas bienes de los que caben en el formato,
+     * el reparto se descarta entero y la tarjeta se pagina sola: un reparto a
+     * medias seria peor que ninguno.
+     *
+     * @param  array<int, int>  $hojasDeOrigen  bien_id => numero de hoja
+     */
+    private function aplicarHojasDelArchivo(Tarjeta $tarjeta, array $hojasDeOrigen): void
+    {
+        if ($hojasDeOrigen === [] || max($hojasDeOrigen) < 2) {
+            return;
+        }
+
+        $porHoja = array_count_values($hojasDeOrigen);
+
+        if (max($porHoja) > $tarjeta->renglones_por_hoja) {
+            return;
+        }
+
+        foreach ($tarjeta->renglones()->get() as $renglon) {
+            $hoja = $hojasDeOrigen[$renglon->bien_id] ?? null;
+
+            // Un renglon ya impreso conserva la hoja donde salio en tinta.
+            if ($hoja === null || $renglon->yaSeImprimio()) {
+                continue;
+            }
+
+            $renglon->updateQuietly(['hoja_fisica' => $hoja]);
+        }
+    }
+
+
     private function ordenarSegunArchivo(Tarjeta $tarjeta, array $posiciones): void
     {
         if ($posiciones === []) {
