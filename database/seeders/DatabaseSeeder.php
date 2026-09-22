@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
             UsuariosSeeder::class,
             RenglonesSeeder::class,
             UnidadesServicioSeeder::class,
+            CertificacionFormatosSeeder::class,
         ]);
     }
 }

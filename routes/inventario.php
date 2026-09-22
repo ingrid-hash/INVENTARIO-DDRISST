@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Inventario\BienController;
+use App\Http\Controllers\Inventario\CertificacionController;
+use App\Http\Controllers\Inventario\CertificacionFormatoController;
 use App\Http\Controllers\Inventario\EmpleadoController;
 use App\Http\Controllers\Inventario\ImportacionController;
 use App\Http\Controllers\Inventario\RenglonController;
@@ -137,4 +139,27 @@ Route::middleware('auth')->prefix('inventario')->name('inventario.')->group(func
 
     Route::middleware('permission:reportes.exportar')
         ->get('reportes/excel', [ReporteController::class, 'exportar'])->name('reportes.excel');
+
+    // --- Certificaciones de inventario
+    Route::middleware('permission:certificaciones.ver')->group(function () {
+        Route::get('certificaciones', [CertificacionController::class, 'index'])
+            ->name('certificaciones.index');
+        Route::get('certificaciones/{certificacion}/imprimir', [CertificacionController::class, 'imprimir'])
+            ->name('certificaciones.imprimir');
+    });
+
+    Route::middleware('permission:certificaciones.emitir')
+        ->post('certificaciones', [CertificacionController::class, 'store'])
+        ->name('certificaciones.store');
+
+    // Las combinaciones de firma: cambian el texto de un documento oficial, por
+    // eso van con permiso aparte del de emitir.
+    Route::middleware('permission:certificaciones.configurar')->group(function () {
+        Route::post('certificacion-formatos', [CertificacionFormatoController::class, 'store'])
+            ->name('certificaciones.formatos.store');
+        Route::put('certificacion-formatos/{formato}', [CertificacionFormatoController::class, 'update'])
+            ->name('certificaciones.formatos.update');
+        Route::delete('certificacion-formatos/{formato}', [CertificacionFormatoController::class, 'destroy'])
+            ->name('certificaciones.formatos.destroy');
+    });
 });

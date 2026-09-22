@@ -89,6 +89,12 @@ class RolesAndPermissionsSeeder extends Seeder
         // Reportes
         'reportes.ver',
         'reportes.exportar',
+
+        // Certificaciones de inventario. Configurar es aparte porque toca las
+        // firmas del documento, no la emision del dia a dia.
+        'certificaciones.ver',
+        'certificaciones.emitir',
+        'certificaciones.configurar',
     ];
 
     /**
@@ -126,6 +132,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'adiciones.ver',
         'bajas.ver',
         'reportes.ver',
+        'certificaciones.ver',
     ];
 
     public function run(): void

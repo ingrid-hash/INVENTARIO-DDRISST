@@ -9,6 +9,7 @@ import {
     Building2,
     ClipboardList,
     DatabaseBackup,
+    FileCheck2,
     FileSpreadsheet,
     FileText,
     IdCard,
@@ -31,6 +32,7 @@ const navItems: NavItem[] = [
     { title: 'Cuentas', url: '/inventario/cuentas', icon: Tags, permiso: 'renglones.ver' },
     { title: 'Unidades de servicio', url: '/inventario/unidades', icon: Building2, permiso: 'unidades.ver' },
     { title: 'Reportes', url: '/inventario/reportes', icon: BarChart3, permiso: 'reportes.ver' },
+    { title: 'Certificaciones', url: '/inventario/certificaciones', icon: FileCheck2, permiso: 'certificaciones.ver' },
     { title: 'Importar de Excel', url: '/inventario/importacion', icon: FileSpreadsheet, permiso: 'importaciones.ver' },
 
     // Seguridad

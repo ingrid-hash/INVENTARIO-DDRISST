@@ -63,6 +63,8 @@ class Bien extends Model
         'anio_ingreso',
         'estado',
         'observaciones',
+        'libro_registro',
+        'libro_folio',
         'importacion_id',
     ];
 
