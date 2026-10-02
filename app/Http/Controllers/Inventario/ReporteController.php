@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Inventario;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Bien;
+use App\Models\Empleado;
 use App\Models\Renglon;
 use App\Models\UnidadServicio;
 use App\Services\ReporteInventario;
@@ -25,10 +26,15 @@ class ReporteController extends Controller
     public function index(Request $request): Response
     {
         $filtros = $this->filtros($request);
-        $reporte = $this->reportes->generar($filtros);
+        $esTraslados = $filtros['tipo'] === 'traslados';
+
+        $reporte = $esTraslados
+            ? ['grupos' => [], 'total_bienes' => 0, 'total_cantidad' => 0, 'total_valor' => 0.0]
+            : $this->reportes->generar($filtros);
 
         return Inertia::render('inventario/reportes/index', [
             'filtros' => $filtros,
+            'traslados' => $esTraslados ? $this->reportes->traslados($filtros) : null,
             'reporte' => [
                 'grupos' => array_map(fn (array $g) => [
                     'rotulo' => $g['rotulo'],
@@ -42,6 +48,7 @@ class ReporteController extends Controller
             ],
             'catalogos' => [
                 'unidades' => UnidadServicio::activas()->orderBy('codigo')->get(['id', 'codigo', 'nombre']),
+                'empleados' => Empleado::orderBy('nombre_completo')->get(['id', 'nombre_completo']),
                 'cuentas' => Renglon::orderBy('orden')->get(['id', 'codigo', 'nombre']),
                 'agrupaciones' => ReporteInventario::AGRUPACIONES,
             ],
@@ -73,6 +80,11 @@ class ReporteController extends Controller
     public function exportar(Request $request): StreamedResponse
     {
         $filtros = $this->filtros($request);
+
+        if ($filtros['tipo'] === 'traslados') {
+            return $this->exportarTraslados($filtros);
+        }
+
         $reporte = $this->reportes->generar($filtros);
 
         $libro = new Spreadsheet;
@@ -149,11 +161,82 @@ class ReporteController extends Controller
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Los traslados a Excel. Van en su propia hoja porque no son bienes sino
+     * movimientos: lo que interesa es de quien salio cada uno y a quien paso.
+     *
+     * @param  array<string, mixed>  $filtros
+     */
+    private function exportarTraslados(array $filtros): StreamedResponse
+    {
+        $traslados = $this->reportes->traslados($filtros);
+
+        $libro = new Spreadsheet;
+        $hoja = $libro->getActiveSheet();
+        $hoja->setTitle('Traslados');
+
+        $fila = 1;
+        $hoja->fromArray(['TRASLADOS DE BIENES'], null, 'A'.$fila);
+        $hoja->getStyle('A'.$fila)->getFont()->setBold(true)->setSize(14);
+        $fila++;
+
+        $hoja->fromArray(['Dirección Departamental de Redes Integradas de Servicios de Salud de Totonicapán'], null, 'A'.$fila);
+        $fila += 2;
+
+        foreach ($this->reportes->descripcionDeFiltros($filtros) as $linea) {
+            $hoja->fromArray([$linea], null, 'A'.$fila);
+            $fila++;
+        }
+
+        $fila++;
+        $hoja->fromArray(['Código', 'Descripción', 'Valor', 'Unidad de servicio', 'De', 'A', 'Fecha', 'Motivo'],
+            null, 'A'.$fila);
+        $hoja->getStyle('A'.$fila.':H'.$fila)->getFont()->setBold(true);
+        $hoja->getStyle('A'.$fila.':H'.$fila)->getFill()
+            ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('D9D9D9');
+        $fila++;
+
+        foreach ($traslados['movimientos'] as $movimiento) {
+            $hoja->fromArray([
+                $movimiento['codigo'],
+                $movimiento['descripcion'],
+                $movimiento['valor'],
+                $movimiento['unidad'],
+                $movimiento['de'],
+                $movimiento['a'],
+                $movimiento['fecha'],
+                $movimiento['motivo'],
+            ], null, 'A'.$fila);
+            $fila++;
+        }
+
+        $fila++;
+        $hoja->fromArray(['', 'TOTAL', $traslados['valor']], null, 'A'.$fila);
+        $hoja->getStyle('A'.$fila.':H'.$fila)->getFont()->setBold(true);
+
+        foreach (range('A', 'H') as $columna) {
+            $hoja->getColumnDimension($columna)->setAutoSize(true);
+        }
+
+        $hoja->getStyle('C')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+
+        AuditLog::registrar(
+            evento: 'reporte.exportado',
+            descripcion: sprintf('Se exportó a Excel un reporte de %d traslado(s)', $traslados['total']),
+            datos: ['filtros' => array_filter($filtros)],
+        );
+
+        return response()->streamDownload(function () use ($libro) {
+            (new Xlsx($libro))->save('php://output');
+        }, 'Traslados de bienes.xlsx', ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
     private function filtros(Request $request): array
     {
         return [
             'unidad_servicio_id' => $request->integer('unidad_servicio_id') ?: null,
             'renglon_id' => $request->integer('renglon_id') ?: null,
+            'empleado_id' => $request->integer('empleado_id') ?: null,
             'tipo_movimiento' => trim((string) $request->string('tipo_movimiento')) ?: null,
             'forma_adquisicion' => trim((string) $request->string('forma_adquisicion')) ?: null,
             'programa' => trim((string) $request->string('programa')) ?: null,
@@ -162,6 +245,9 @@ class ReporteController extends Controller
             'hasta' => trim((string) $request->string('hasta')) ?: null,
             'estado' => trim((string) $request->string('estado')) ?: null,
             'agrupar_por' => trim((string) $request->string('agrupar_por')) ?: 'unidad',
+
+            // Que se esta consultando: el inventario o los traslados.
+            'tipo' => $request->string('tipo')->toString() === 'traslados' ? 'traslados' : 'inventario',
         ];
     }
 

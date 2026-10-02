@@ -28,14 +28,18 @@ class CertificacionController extends Controller
     public function index(Request $request): Response
     {
         $buscar = trim((string) $request->string('buscar'));
+        $buscarHechas = trim((string) $request->string('hechas'));
 
         return Inertia::render('inventario/certificaciones/index', [
             'buscar' => $buscar,
             'resultados' => $buscar === '' ? [] : $this->buscar($buscar),
+            'buscar_hechas' => $buscarHechas,
+            'hechas' => $this->hechas($buscarHechas),
             'formatos' => $this->formatos(),
             'plantillas' => $this->textos->plantillas(),
             'cierre' => $this->textos->cierre(),
-            'emitidas' => $this->emitidas(),
+            // La que se acaba de emitir, para descargarla sin tener que buscarla.
+            'recien_emitida' => $request->session()->get('certificacion_emitida'),
         ]);
     }
 
@@ -47,7 +51,7 @@ class CertificacionController extends Controller
      */
     private function buscar(string $termino): array
     {
-        return Bien::query()
+        $bienes = Bien::query()
             ->with(['unidadServicio:id,nombre,tipo', 'asignacionVigente.empleado:id,nombre_completo'])
             ->where(function ($query) use ($termino) {
                 $query->where('codigo', 'ilike', $termino.'%')
@@ -59,9 +63,119 @@ class CertificacionController extends Controller
             })
             ->orderBy('codigo')
             ->limit(40)
-            ->get()
-            ->map(fn (Bien $bien) => $this->datosDeBien($bien))
+            ->get();
+
+        $previas = $this->certificacionesPrevias($bienes->pluck('id')->all());
+
+        return $bienes
+            ->map(fn (Bien $bien) => $this->datosDeBien($bien, $previas[$bien->id] ?? null))
             ->all();
+    }
+
+    /**
+     * La ultima certificacion de cada bien, en una sola consulta.
+     *
+     * Sirve para que al agregar un bien que ya se certifico antes se recupere
+     * aquel documento en lugar de volver a escribirlo todo.
+     *
+     * @param  array<int, int>  $bienes
+     * @return array<int, array<string, mixed>> indexado por bien
+     */
+    private function certificacionesPrevias(array $bienes): array
+    {
+        if ($bienes === []) {
+            return [];
+        }
+
+        $certificaciones = Certificacion::query()
+            ->with(['bienes.bien:id,codigo,descripcion,precio_unitario', 'unidadServicio:id,nombre,tipo'])
+            ->whereHas('bienes', fn ($q) => $q->whereIn('bien_id', $bienes))
+            ->latest('id')
+            ->get();
+
+        $previas = [];
+
+        foreach ($certificaciones as $certificacion) {
+            $datos = $this->datosDeCertificacion($certificacion);
+
+            // Van de la mas reciente a la mas antigua: la primera que aparece
+            // para un bien es la que se reutiliza.
+            foreach ($certificacion->bienes as $punto) {
+                if ($punto->bien_id !== null && ! isset($previas[$punto->bien_id])) {
+                    $previas[$punto->bien_id] = $datos;
+                }
+            }
+        }
+
+        return $previas;
+    }
+
+    /**
+     * Certificaciones ya emitidas. Se buscan por su numero, por el codigo o la
+     * descripcion de un bien, o por el nombre de quien lo tiene a su cargo.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function hechas(string $termino): array
+    {
+        return Certificacion::query()
+            ->with([
+                'emitidaPor:id,name',
+                'bienes.bien:id,codigo,descripcion,precio_unitario',
+                'unidadServicio:id,nombre,tipo',
+            ])
+            ->when($termino !== '', fn ($query) => $query->where(function ($sub) use ($termino) {
+                $sub->where('numero', 'ilike', $termino.'%')
+                    ->orWhereHas('bienes.bien', fn ($b) => $b
+                        ->where('codigo', 'ilike', $termino.'%')
+                        ->orWhere('descripcion', 'ilike', '%'.$termino.'%'))
+                    ->orWhereHas(
+                        'bienes.bien.asignacionVigente.empleado',
+                        fn ($e) => $e->where('nombre_completo', 'ilike', '%'.$termino.'%')
+                    );
+            }))
+            ->latest('id')
+            ->limit(15)
+            ->get()
+            ->map(fn (Certificacion $c) => $this->datosDeCertificacion($c))
+            ->all();
+    }
+
+    /**
+     * Una certificacion emitida, con todo lo que hace falta para volver a
+     * armarla en pantalla.
+     *
+     * De cada bien se envian dos textos: el que se imprimio entonces y el que
+     * saldria hoy, porque la descripcion o el precio pueden haber cambiado.
+     *
+     * @return array<string, mixed>
+     */
+    private function datosDeCertificacion(Certificacion $c): array
+    {
+        return [
+            'id' => $c->id,
+            'numero' => $c->numero,
+            'fecha' => $c->created_at?->format('d/m/Y'),
+            'emitida_por' => $c->emitidaPor?->name,
+            'firmante' => $c->firmante_nombre,
+            'formato_id' => $c->certificacion_formato_id,
+            'unidad_servicio_id' => $c->unidad_servicio_id,
+            'unidad_nombre' => $this->textos->nombreDeUnidad($c->unidadServicio),
+            'libro_auxiliar' => $c->libro_auxiliar,
+            'libro_registro' => $c->libro_registro,
+            'libro_folio' => $c->libro_folio,
+            'apertura' => $c->apertura,
+            'parrafo_libro' => $c->parrafo_libro,
+            'bienes' => $c->bienes
+                ->filter(fn ($punto) => $punto->bien_id !== null)
+                ->values()
+                ->map(fn ($punto) => [
+                    'bien_id' => $punto->bien_id,
+                    'codigo' => $punto->bien?->codigo ?? '',
+                    'texto' => $punto->texto,
+                    'texto_actual' => $punto->bien ? $this->textos->parrafoBien($punto->bien) : $punto->texto,
+                ])->all(),
+        ];
     }
 
     /**
@@ -70,11 +184,13 @@ class CertificacionController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function datosDeBien(Bien $bien): array
+    private function datosDeBien(Bien $bien, ?array $previa = null): array
     {
         $unidad = $bien->unidadServicio;
 
         return [
+            // La ultima certificacion donde salio este bien, si la hay.
+            'certificacion_previa' => $previa,
             'id' => $bien->id,
             'codigo' => $bien->codigo,
             'descripcion' => $bien->descripcion,
@@ -133,30 +249,6 @@ class CertificacionController extends Controller
                 'institucion' => $f->institucion,
                 'predeterminado' => $f->predeterminado,
                 'apertura' => $this->textos->apertura($f),
-            ])
-            ->all();
-    }
-
-    /**
-     * Las ultimas certificaciones, para volver a imprimir una ya emitida.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function emitidas(): array
-    {
-        return Certificacion::query()
-            ->with('emitidaPor:id,name')
-            ->withCount('bienes')
-            ->latest('id')
-            ->limit(15)
-            ->get()
-            ->map(fn (Certificacion $c) => [
-                'id' => $c->id,
-                'numero' => $c->numero,
-                'fecha' => $c->created_at?->format('d/m/Y H:i'),
-                'firmante' => $c->firmante_nombre,
-                'bienes' => $c->bienes_count,
-                'emitida_por' => $c->emitidaPor?->name,
             ])
             ->all();
     }
@@ -239,9 +331,11 @@ class CertificacionController extends Controller
             ],
         );
 
-        // Se vuelve a la pantalla y desde ahi se abre la vista de impresion:
-        // esa vista no es de React y no puede devolverse como respuesta aqui.
-        return back()->with('status', 'Certificación '.$certificacion->numero.' emitida.');
+        // Se vuelve a la pantalla y desde ahi se descarga el PDF: el archivo no
+        // es una respuesta de React y no puede devolverse aqui.
+        return back()
+            ->with('status', 'Certificación '.$certificacion->numero.' emitida.')
+            ->with('certificacion_emitida', $certificacion->id);
     }
 
     /**

@@ -9,14 +9,13 @@ use App\Models\Empleado;
 use App\Models\Tarjeta;
 use App\Models\TarjetaHoja;
 use App\Models\TarjetaRenglon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-
 class TarjetaService
 {
-    
     public function abrir(Empleado $empleado, ?string $numero = null, ?string $fechaApertura = null): Tarjeta
     {
         if ($empleado->tarjetaVigente()->exists()) {
@@ -41,7 +40,6 @@ class TarjetaService
         return $tarjeta;
     }
 
-   
     public function agregarBien(Tarjeta $tarjeta, Bien $bien): TarjetaRenglon
     {
         $this->exigirVigente($tarjeta);
@@ -58,7 +56,6 @@ class TarjetaService
             ]);
         }
 
-        
         $vigente = $bien->asignacionVigente()->with('empleado')->first();
 
         if ($vigente) {
@@ -104,7 +101,6 @@ class TarjetaService
         });
     }
 
-    
     public function quitarBien(Tarjeta $tarjeta, Bien $bien, string $motivo = 'cambio_responsable'): Tarjeta
     {
         $this->exigirVigente($tarjeta);
@@ -137,7 +133,6 @@ class TarjetaService
                 datos: ['bien' => $bien->codigo, 'motivo' => $motivo],
             );
 
-            
             if (! $renglon->yaSeImprimio()) {
                 $renglon->delete();
                 $this->compactarOrden($tarjeta);
@@ -146,7 +141,6 @@ class TarjetaService
                 return $tarjeta->fresh();
             }
 
-            
             return $this->regenerar($tarjeta, excluyendo: [$bien->id]);
         });
     }
@@ -160,6 +154,14 @@ class TarjetaService
     public function regenerar(Tarjeta $tarjeta, array $excluyendo = []): Tarjeta
     {
         $this->exigirVigente($tarjeta);
+
+        // Lo que ya no le corresponde a la persona sale siempre: un bien dado de
+        // baja o trasladado seguia apareciendo en el papel porque ahi estaba
+        // escrito, y la version nueva es la ocasion de quitarlo.
+        $excluyendo = array_values(array_unique(array_merge(
+            $excluyendo,
+            $this->bienesPendientesDeSalir($tarjeta)->pluck('bien_id')->all(),
+        )));
 
         return DB::transaction(function () use ($tarjeta, $excluyendo) {
             $renglones = $tarjeta->renglones()
@@ -180,7 +182,6 @@ class TarjetaService
                 'renglones_por_hoja' => $tarjeta->renglones_por_hoja,
             ]);
 
-            
             $orden = 1;
 
             foreach ($renglones as $renglon) {
@@ -191,14 +192,24 @@ class TarjetaService
                     'debe' => $renglon->debe,
                     'haber' => $renglon->haber,
 
-                   
                     'total_corte_original' => $renglon->total_corte_original,
 
                     'observaciones' => $renglon->observaciones,
                 ]);
             }
 
-            // Las custodias vigentes pasan a colgar de la tarjeta nueva.
+            // Los bienes que quedaron fuera dejan de estar a cargo de nadie: su
+            // custodia se cierra aqui, que es cuando de verdad salen del papel.
+            Asignacion::where('tarjeta_id', $tarjeta->id)
+                ->where('activa', true)
+                ->whereIn('bien_id', $excluyendo ?: [0])
+                ->update([
+                    'activa' => false,
+                    'fecha_devolucion' => now()->toDateString(),
+                    'motivo_cierre' => 'baja',
+                ]);
+
+            // Las demas custodias pasan a colgar de la tarjeta nueva.
             Asignacion::where('tarjeta_id', $tarjeta->id)
                 ->where('activa', true)
                 ->update(['tarjeta_id' => $nueva->id]);
@@ -221,7 +232,127 @@ class TarjetaService
         });
     }
 
-    
+    /**
+     * Renglones de la tarjeta cuyo bien ya no le corresponde a esta persona.
+     *
+     * Son dos casos y se resuelven igual: el bien se dio de baja, o se traslado
+     * a otro empleado. En los dos sigue escrito en la hoja firmada, asi que
+     * sigue apareciendo y sumando hasta que la tarjeta se regenere.
+     *
+     * @return Collection<int, TarjetaRenglon>
+     */
+    public function bienesPendientesDeSalir(Tarjeta $tarjeta): Collection
+    {
+        return $tarjeta->renglones()
+            ->with(['bien:id,codigo,descripcion,estado,total', 'bien.asignacionVigente.empleado:id,nombre_completo'])
+            ->get()
+            ->filter(function (TarjetaRenglon $renglon) use ($tarjeta) {
+                $bien = $renglon->bien;
+
+                if ($bien === null) {
+                    return false;
+                }
+
+                if ($bien->estado === Bien::ESTADO_BAJA) {
+                    return true;
+                }
+
+                $custodia = $bien->asignacionVigente;
+
+                return $custodia !== null && $custodia->tarjeta_id !== $tarjeta->id;
+            })
+            ->values();
+    }
+
+    /**
+     * Traslada un bien a la tarjeta de otro empleado.
+     *
+     * Para quien lo recibe es una adicion mas: entra al final de su tarjeta y
+     * sale con la siguiente impresion. Para quien lo tenia, el bien sigue
+     * escrito en su hoja firmada hasta que esa tarjeta se regenere; si todavia
+     * no se habia impreso, se quita sin dejar rastro, porque nunca existio en
+     * papel.
+     */
+    public function trasladar(Bien $bien, Empleado $destino, ?string $observaciones = null): TarjetaRenglon
+    {
+        if ($bien->estado === Bien::ESTADO_BAJA) {
+            throw ValidationException::withMessages([
+                'bien_id' => sprintf('El bien %s está dado de baja y no puede trasladarse.', $bien->codigo),
+            ]);
+        }
+
+        $tarjetaDestino = $destino->tarjetaVigente;
+
+        if (! $tarjetaDestino) {
+            throw ValidationException::withMessages([
+                'empleado_id' => sprintf(
+                    '%s no tiene una tarjeta vigente. Ábrale una antes de trasladarle bienes.',
+                    $destino->nombre_completo,
+                ),
+            ]);
+        }
+
+        $custodia = $bien->asignacionVigente()->with('empleado')->first();
+
+        if ($custodia?->empleado_id === $destino->id) {
+            throw ValidationException::withMessages([
+                'empleado_id' => sprintf(
+                    'El bien %s ya está a cargo de %s.',
+                    $bien->codigo,
+                    $destino->nombre_completo,
+                ),
+            ]);
+        }
+
+        return DB::transaction(function () use ($bien, $destino, $tarjetaDestino, $custodia, $observaciones) {
+            $origen = $custodia?->tarjeta;
+
+            if ($custodia) {
+                $custodia->update([
+                    'activa' => false,
+                    'fecha_devolucion' => now()->toDateString(),
+                    'motivo_cierre' => 'traslado',
+                    'observaciones' => $observaciones,
+                ]);
+            }
+
+            // Lo que no salio en papel se quita de una vez: nadie lo firmo.
+            if ($origen instanceof Tarjeta && $origen->estaVigente()) {
+                $renglon = $origen->renglones()->where('bien_id', $bien->id)->first();
+
+                if ($renglon && ! $renglon->yaSeImprimio()) {
+                    $renglon->delete();
+                    $this->compactarOrden($origen);
+                    $this->recalcularSaldos($origen);
+                }
+            }
+
+            $nuevo = $this->agregarBien($tarjetaDestino, $bien);
+
+            if ($observaciones) {
+                $nuevo->update(['observaciones' => $observaciones]);
+            }
+
+            AuditLog::registrar(
+                evento: 'bien.trasladado',
+                descripcion: sprintf(
+                    'Se trasladó el bien %s de %s a %s',
+                    $bien->codigo,
+                    $custodia?->empleado?->nombre_completo ?? 'nadie',
+                    $destino->nombre_completo,
+                ),
+                modelo: $bien,
+                datos: [
+                    'tarjeta_origen' => $origen?->id,
+                    'tarjeta_destino' => $tarjetaDestino->id,
+                    'observaciones' => $observaciones,
+                ],
+            );
+
+            return $nuevo;
+        });
+    }
+
     public function recalcularSaldos(Tarjeta $tarjeta): void
     {
         $acumulado = 0.0;
@@ -235,17 +366,32 @@ class TarjetaService
         $tarjeta->updateQuietly(['saldo_total' => $acumulado]);
     }
 
-
     public function marcarImpreso(Tarjeta $tarjeta, array $renglonIds, int $hoja): void
     {
+        $papel = $tarjeta->hoja($hoja);
+
         $tarjeta->renglones()
             ->whereIn('id', $renglonIds)
             ->update(['hoja_fisica' => $hoja, 'impreso_at' => now()]);
 
+        // Lo que sale en papel congela su alto. Si manana alguien corrige una
+        // descripcion, las rayas de esta hoja no se mueven y lo que se imprima
+        // despues sigue cayendo sobre su linea.
+        $medidor = app(MedidorTarjeta::class);
+
+        foreach ($tarjeta->renglones()->whereIn('id', $renglonIds)->with('bien')->get() as $renglon) {
+            $renglon->update([
+                'alto_mm' => $medidor->altoDeRenglon($renglon, $papel->escala ?? 1.0),
+                'lineas' => $medidor->lineas(
+                    $renglon->bien?->descripcion,
+                    GeometriaTarjeta::anchoUtil('desc'),
+                ),
+            ]);
+        }
+
         // La hoja de papel queda marcada la primera vez que sale de la
         // impresora. Es lo que despues permite saber que sobre ese papel ya no
         // se puede escribir a ciegas.
-        $papel = $tarjeta->hoja($hoja);
 
         if (! $papel->seImprimio()) {
             $papel->update(['impresa_at' => now()]);
@@ -294,7 +440,9 @@ class TarjetaService
         DB::transaction(function () use ($tarjeta, $renglon, $motivo) {
             $hoja = $renglon->hoja_fisica;
 
-            $renglon->update(['impreso_at' => null]);
+            // Al retractarse vuelve a medirse: su alto deja de estar atado a un
+            // papel que ya no cuenta.
+            $renglon->update(['impreso_at' => null, 'alto_mm' => null, 'lineas' => null]);
 
             // Si en esa hoja ya no queda nada impreso, para el sistema el papel
             // vuelve a estar limpio: se retira la marca y se reabre, porque un
@@ -397,25 +545,47 @@ class TarjetaService
      * Guarda el calce de una hoja: los milimetros que hay que correr la
      * impresion para que la tinta caiga en los espacios libres del papel.
      */
-    public function guardarCalce(Tarjeta $tarjeta, int $hoja, float $x, float $y): TarjetaHoja
-    {
+    public function guardarCalce(
+        Tarjeta $tarjeta,
+        int $hoja,
+        ?float $x = null,
+        ?float $y = null,
+        ?float $escala = null,
+    ): TarjetaHoja {
         $tope = TarjetaHoja::DESFASE_MAXIMO_MM;
 
         $papel = $tarjeta->hoja($hoja);
 
-        $papel->update([
-            'desfase_x_mm' => round(max(-$tope, min($tope, $x)), 1),
-            'desfase_y_mm' => round(max(-$tope, min($tope, $y)), 1),
-        ]);
+        $cambios = [];
+
+        if ($x !== null) {
+            $cambios['desfase_x_mm'] = round(max(-$tope, min($tope, $x)), 1);
+        }
+
+        if ($y !== null) {
+            $cambios['desfase_y_mm'] = round(max(-$tope, min($tope, $y)), 1);
+        }
+
+        // Cuanto se aprieta el texto para que la hoja cierre sin pasarse. Es lo
+        // mismo que la institucion hace en el Excel cuando le baja la escala de
+        // impresion, y va por hoja porque el papel ya impreso manda.
+        if ($escala !== null) {
+            $cambios['escala'] = round(
+                max(GeometriaTarjeta::ESCALA_MINIMA, min(1.0, $escala)), 3
+            );
+        }
+
+        $papel->update($cambios);
 
         AuditLog::registrar(
             evento: 'tarjeta.calce_guardado',
             descripcion: sprintf(
-                'Se calibró la hoja %d de la tarjeta de %s en %s / %s mm',
+                'Se calibró la hoja %d de la tarjeta de %s en %s / %s mm, texto al %d %%',
                 $hoja,
                 $tarjeta->empleado->nombre_completo,
                 $papel->desfase_x_mm,
                 $papel->desfase_y_mm,
+                round($papel->escala * 100),
             ),
             modelo: $tarjeta,
         );
@@ -479,7 +649,6 @@ class TarjetaService
         return $papel;
     }
 
-    
     private function compactarOrden(Tarjeta $tarjeta): void
     {
         $orden = 1;

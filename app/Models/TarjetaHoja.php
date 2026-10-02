@@ -25,11 +25,25 @@ class TarjetaHoja extends Model
      */
     public const DESFASE_MAXIMO_MM = 18.0;
 
+    /**
+     * Los valores por omision de PostgreSQL no llegan al objeto recien creado, y
+     * el paginador los lee de inmediato: sin esto una hoja nueva saldria sin
+     * calce y sin ajuste de texto, que es null y no cero.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'desfase_x_mm' => 0,
+        'desfase_y_mm' => 0,
+        'escala' => 1,
+    ];
+
     protected $fillable = [
         'tarjeta_id',
         'numero',
         'desfase_x_mm',
         'desfase_y_mm',
+        'escala',
         'cerrada_at',
         'impresa_at',
     ];
@@ -40,6 +54,7 @@ class TarjetaHoja extends Model
             'numero' => 'integer',
             'desfase_x_mm' => 'float',
             'desfase_y_mm' => 'float',
+            'escala' => 'float',
             'cerrada_at' => 'datetime',
             'impresa_at' => 'datetime',
         ];

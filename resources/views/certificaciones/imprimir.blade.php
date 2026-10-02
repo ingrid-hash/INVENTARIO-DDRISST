@@ -2,90 +2,49 @@
 <html lang="es">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Certificación {{ $certificacion->numero }}</title>
 
     <style>
-        /* Carta vertical. El membrete va dentro de la hoja, por eso la pagina
-           no lleva margen: los margenes los pone el bloque de contenido. */
-        @page { size: 215.9mm 279.4mm; margin: 0; }
+        /* Carta vertical, con los mismos margenes del formato de la institucion.
+           El membrete y el pie van fijos al borde de la hoja: no se mueven
+           aunque el cuerpo crezca, y se repiten si hiciera falta otra hoja. */
+        @page { size: 215.9mm 279.4mm; margin: 32.5mm 15.9mm 30mm 15mm; }
 
-        * { box-sizing: border-box; }
-
-        html, body {
+        body {
             margin: 0;
-            padding: 0;
-            background: #f1f5f9;
-            font-family: Calibri, Carlito, Candara, Arial, sans-serif;
+            font-family: 'DejaVu Sans', sans-serif;
+            font-size: 10pt;
+            line-height: 1.3;
             color: #000;
         }
 
-        .barra {
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            display: flex;
-            gap: 14px;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 16px;
-            background: #1c2e5f;
-            color: #fff;
-            font-size: 12px;
-        }
-
-        .barra button {
-            font: inherit;
-            font-weight: 600;
-            padding: 7px 16px;
-            border: 0;
-            border-radius: 4px;
-            background: #3fa8dc;
-            color: #06243a;
-            cursor: pointer;
-        }
-
-        .hoja {
-            position: relative;
-            width: 215.9mm;
-            /* La certificacion cabe en una hoja. Si alguna vez lleva tantos
-               bienes que no cabe, el texto sigue en la siguiente y no se corta. */
-            min-height: 279.4mm;
-            margin: 14px auto;
-            padding: 32.5mm 15.9mm 30mm 15mm;
-            background: #fff;
-            box-shadow: 0 2px 10px rgba(15, 23, 41, .18);
-        }
-
-        /* --- Membrete: recortado del formato de la institucion --- */
-
+        /* Lo fijo se mide desde el area de texto, no desde el borde del papel,
+           por eso sale del margen con valores negativos: con margen superior de
+           32.5mm, -26.1mm cae a 6.4mm del borde de la hoja. */
         .escudo {
-            position: absolute;
-            top: 6.5mm;
-            left: 17.1mm;
+            position: fixed;
+            top: -26.1mm;
+            left: 2.1mm;
             width: 62.7mm;
         }
 
         .institucion {
-            position: absolute;
-            top: 12mm;
-            right: 15.9mm;
+            position: fixed;
+            top: -20.5mm;
+            left: 78mm;
             width: 107mm;
             text-align: right;
-            font-family: 'Candara Light', Candara, Calibri, sans-serif;
             font-weight: bold;
-            font-size: 11pt;
+            font-size: 10pt;
             line-height: 1.15;
-            color: #000;
         }
 
         .pie {
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: 7mm;
+            position: fixed;
+            bottom: -26.5mm;
+            left: -15mm;
+            width: 215.9mm;
             text-align: center;
-            font-family: 'Candara Light', Candara, Calibri, sans-serif;
             color: #002060;
             line-height: 1.25;
         }
@@ -95,102 +54,66 @@
         .pie .direccion,
         .pie .telefono { font-size: 10pt; }
 
-        /* --- Cuerpo --- */
+        p { margin: 0 0 11pt; text-align: justify; }
 
-        .cuerpo { font-size: 11pt; line-height: 1.15; }
+        .certifica { text-align: center; font-size: 14pt; margin: 14pt 0; }
 
-        .cuerpo p {
-            margin: 0 0 11pt;
-            text-align: justify;
-        }
+        .puntos { margin: 0 0 11pt; padding-left: 8mm; }
+        .puntos li { text-align: justify; margin-bottom: 8pt; }
 
-        .certifica {
-            text-align: center;
-            font-size: 16pt;
-            margin: 11pt 0 11pt;
-        }
+        .cierre { margin-top: 16pt; }
 
-        .puntos {
-            margin: 0 0 11pt;
-            padding-left: 9mm;
-        }
+        /* El espacio que el formato deja en blanco antes de las firmas. */
+        .firmas { padding-top: 48mm; }
 
-        .puntos li {
-            text-align: justify;
-            margin-bottom: 8pt;
-        }
-
-        .cierre { margin-top: 22pt; }
-
-        /* Los dos bloques de firma: el de quien certifica a la izquierda y el
-           visto bueno mas abajo y a la derecha, como en el formato. */
-        .firma {
-            width: 62%;
-            text-align: center;
-            font-size: 11pt;
-            line-height: 1.15;
-        }
-
-        .firma.certifica-quien { margin-top: 26mm; }
+        /* El ancho decide donde parte la linea de la institucion: con este
+           queda en dos renglones, como en el formato. */
+        .firma { width: 54%; text-align: center; line-height: 1.2; }
         .firma.visto-bueno { margin-top: 14mm; margin-left: auto; }
-
-        @media print {
-            html, body { background: #fff; }
-            .barra { display: none; }
-            .hoja { margin: 0; box-shadow: none; }
-        }
     </style>
 </head>
 <body>
 
-<div class="barra">
-    <span>Certificación {{ $certificacion->numero }} · papel bond membretado tamaño carta</span>
-    <button type="button" onclick="window.print()">Imprimir</button>
+<img class="escudo" src="{{ $logo }}" alt="Ministerio de Salud Pública y Asistencia Social">
+
+<div class="institucion">
+    DIRECCION DEPARTAMENTAL DE REDES INTEGRADAS DE SERVICIOS DE SALUD DE TOTONICAPAN
 </div>
 
-<section class="hoja">
-    <img class="escudo" src="{{ asset('img/membrete-logo.png') }}"
-         alt="Ministerio de Salud Pública y Asistencia Social">
+<p>{{ $certificacion->apertura }}</p>
 
-    <div class="institucion">
-        DIRECCION DEPARTAMENTAL DE REDES INTEGRADAS DE SERVICIOS DE SALUD DE TOTONICAPAN
+<p class="certifica">CERTIFICA:</p>
+
+<p>{{ $certificacion->parrafo_libro }}</p>
+
+<ol class="puntos">
+    @foreach ($certificacion->bienes as $punto)
+        <li>{{ $punto->texto }}</li>
+    @endforeach
+</ol>
+
+<p class="cierre">{{ $certificacion->cierre }}</p>
+
+<div class="firmas">
+    <div class="firma">
+        <div>{{ $certificacion->firmante_nombre }}</div>
+        <div>{{ $certificacion->firmante_cargo }}</div>
+        <div>{{ $certificacion->institucion }}</div>
     </div>
 
-    <div class="cuerpo">
-        <p>{{ $certificacion->apertura }}</p>
-
-        <p class="certifica">CERTIFICA:</p>
-
-        <p>{{ $certificacion->parrafo_libro }}</p>
-
-        <ol class="puntos">
-            @foreach ($certificacion->bienes as $punto)
-                <li>{{ $punto->texto }}</li>
-            @endforeach
-        </ol>
-
-        <p class="cierre">{{ $certificacion->cierre }}</p>
-
-        <div class="firma certifica-quien">
-            <div>{{ $certificacion->firmante_nombre }}</div>
-            <div>{{ $certificacion->firmante_cargo }}</div>
-            <div>{{ $certificacion->institucion }}</div>
-        </div>
-
-        <div class="firma visto-bueno">
-            <div>Vo.Bo. {{ $certificacion->vobo_nombre }}</div>
-            <div>{{ $certificacion->vobo_cargo }}</div>
-            <div>{{ $certificacion->institucion }}</div>
-        </div>
+    <div class="firma visto-bueno">
+        <div>Vo.Bo. {{ $certificacion->vobo_nombre }}</div>
+        <div>{{ $certificacion->vobo_cargo }}</div>
+        <div>{{ $certificacion->institucion }}</div>
     </div>
+</div>
 
-    <footer class="pie">
-        <img src="{{ asset('img/membrete-linea.png') }}" alt="">
-        <div class="lema">&ldquo;TODO SERVICIO DE SALUD PUBLICO ES GRATUITO&rdquo;</div>
-        <div class="direccion">Carretera Totonicapán, zona 0, Cantón Tierra Blanca, Totonicapán, Totonicapán</div>
-        <div class="telefono">Teléfono: 7763-5694</div>
-    </footer>
-</section>
+<div class="pie">
+    <img src="{{ $linea }}" alt="">
+    <div class="lema">&ldquo;TODO SERVICIO DE SALUD PUBLICO ES GRATUITO&rdquo;</div>
+    <div class="direccion">Carretera Totonicapán, zona 0, Cantón Tierra Blanca, Totonicapán, Totonicapán</div>
+    <div class="telefono">Teléfono: 7763-5694</div>
+</div>
 
 </body>
 </html>

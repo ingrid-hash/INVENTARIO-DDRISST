@@ -117,7 +117,10 @@ class RolesAndPermissionsSeeder extends Seeder
     ];
 
     /**
-     * Lo que puede hacer el rol Usuario: consultar e imprimir, nada mas.
+     * Lo que puede hacer el rol Usuario: consultar, imprimir y cargar sus
+     * archivos de Excel. La importacion entra aqui porque quien tiene los
+     * archivos de una unidad es la persona de esa unidad, no el administrador;
+     * revertir una importacion si queda fuera, que eso borra lo cargado.
      *
      * @var array<int, string>
      */
@@ -133,6 +136,8 @@ class RolesAndPermissionsSeeder extends Seeder
         'bajas.ver',
         'reportes.ver',
         'certificaciones.ver',
+        'importaciones.ver',
+        'importaciones.ejecutar',
     ];
 
     public function run(): void

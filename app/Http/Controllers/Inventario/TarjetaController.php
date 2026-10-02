@@ -9,20 +9,27 @@ use App\Models\Tarjeta;
 use App\Models\TarjetaHoja;
 use App\Models\TarjetaRenglon;
 use App\Models\UnidadServicio;
+use App\Services\GeometriaTarjeta;
+use App\Services\MedidorTarjeta;
 use App\Services\PaginadorTarjeta;
 use App\Services\TarjetaService;
+use Carbon\CarbonImmutable;
+use Dompdf\Dompdf;
+use Dompdf\Options;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class TarjetaController extends Controller
 {
     public function __construct(
         private readonly TarjetaService $tarjetas,
         private readonly PaginadorTarjeta $paginador,
+        private readonly MedidorTarjeta $medidor,
     ) {}
 
     public function index(Request $request): Response
@@ -178,6 +185,18 @@ class TarjetaController extends Controller
             ]),
             'disponibles' => $disponibles,
             'busqueda' => $buscarBien,
+
+            // Bienes que siguen escritos en la hoja firmada pero que ya no le
+            // corresponden a esta persona: se dieron de baja o se trasladaron.
+            // Salen el dia que se regenere la tarjeta.
+            'pendientes_de_salir' => $this->tarjetas->bienesPendientesDeSalir($tarjeta)
+                ->map(fn (TarjetaRenglon $r) => [
+                    'codigo' => $r->bien->codigo,
+                    'descripcion' => $r->bien->descripcion,
+                    'razon' => $r->bien->estado === Bien::ESTADO_BAJA
+                        ? 'dado de baja'
+                        : 'trasladado a '.($r->bien->asignacionVigente?->empleado?->nombre_completo ?? 'otra tarjeta'),
+                ])->values(),
             'hojas' => $this->resumenHojas($tarjeta),
         ]);
     }
@@ -236,8 +255,57 @@ class TarjetaController extends Controller
             ->with('status', sprintf('Se generó la versión %d de la tarjeta.', $nueva->version));
     }
 
-    
     public function imprimir(Request $request, Tarjeta $tarjeta): View
+    {
+        return view('tarjetas.imprimir', $this->datosDeImpresion($request, $tarjeta) + ['pdf' => false]);
+    }
+
+    /**
+     * La misma hoja, en PDF.
+     *
+     * Se arma con los mismos datos y el mismo formato que la vista: aqui no se
+     * decide nada, solo cambia a donde sale. El PDF es lo que se manda a la
+     * impresora, porque el navegador agrega su propio encabezado y su pie a lo
+     * que imprime, y esto va sobre un formulario de la Contraloria.
+     */
+    public function pdf(Request $request, Tarjeta $tarjeta): StreamedResponse
+    {
+        $datos = $this->datosDeImpresion($request, $tarjeta);
+
+        $html = view('tarjetas.imprimir', $datos + ['pdf' => true])->render();
+
+        $dompdf = new Dompdf(new Options(['isRemoteEnabled' => false]));
+        // Oficio apaisado, 33.0 x 21.59 cm expresado en puntos.
+        $dompdf->setPaper([0, 0, 935.433, 612.0]);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->render();
+
+        $contenido = (string) $dompdf->output();
+
+        $archivo = sprintf(
+            'Tarjeta %s%s.pdf',
+            $tarjeta->empleado->nombre_completo,
+            match (true) {
+                $datos['soloPendientes'] => ' - solo lo nuevo',
+                $datos['ensayo'] => ' - hasta la fecha',
+                default => '',
+            },
+        );
+
+        return response()->streamDownload(
+            fn () => print ($contenido),
+            $archivo,
+            ['Content-Type' => 'application/pdf'],
+        );
+    }
+
+    /**
+     * Lo que necesita el formato impreso: las hojas ya paginadas y que renglones
+     * no deben dejar tinta segun el modo de impresion.
+     *
+     * @return array<string, mixed>
+     */
+    private function datosDeImpresion(Request $request, Tarjeta $tarjeta): array
     {
         $tarjeta->load('empleado.unidadServicio');
 
@@ -261,7 +329,7 @@ class TarjetaController extends Controller
                 : $this->renglonesImpresos($hojas, impresos: false);
         }
 
-        return view('tarjetas.imprimir', [
+        return [
             'tarjeta' => $tarjeta,
             'empleado' => $tarjeta->empleado,
             'unidad' => $tarjeta->empleado->unidadServicio,
@@ -274,7 +342,7 @@ class TarjetaController extends Controller
             'cuentaPreviaPorHoja' => $this->cuentaPreviaPorHoja($hojas),
             'descuadres' => $this->descuadres($hojas),
             'formatearQ' => fn (float|string $valor) => number_format((float) $valor, 2, '.', ','),
-        ]);
+        ];
     }
 
     /**
@@ -309,7 +377,7 @@ class TarjetaController extends Controller
         }
 
         try {
-            return \Carbon\CarbonImmutable::parse($valor)->toDateString();
+            return CarbonImmutable::parse($valor)->toDateString();
         } catch (\Throwable) {
             return null;
         }
@@ -459,6 +527,22 @@ class TarjetaController extends Controller
         $hojas = $this->paginador->paginar($tarjeta);
 
         return Inertia::render('inventario/tarjetas/calce', [
+            'geometria' => [
+                'papel_ancho' => GeometriaTarjeta::PAPEL_ANCHO_MM,
+                'papel_alto' => GeometriaTarjeta::PAPEL_ALTO_MM,
+                'margen_izquierdo' => GeometriaTarjeta::MARGEN_IZQUIERDO_MM,
+                'margen_superior_frente' => GeometriaTarjeta::MARGEN_SUPERIOR_FRENTE_MM,
+                'margen_superior_reverso' => GeometriaTarjeta::MARGEN_SUPERIOR_REVERSO_MM,
+                'alto_encabezado' => GeometriaTarjeta::ALTO_ENCABEZADO_MM,
+                'alto_rotulos' => GeometriaTarjeta::ALTO_ROTULOS_MM,
+                'alto_linea' => GeometriaTarjeta::ALTO_LINEA_MM,
+                'alto_firmas' => GeometriaTarjeta::ALTO_FIRMAS_MM,
+                'alto_pie' => GeometriaTarjeta::ALTO_PIE_MM,
+                'margen_inferior' => GeometriaTarjeta::MARGEN_INFERIOR_MM,
+                'espacio_firma' => GeometriaTarjeta::ESPACIO_FIRMA_MM,
+                'escala_minima' => GeometriaTarjeta::ESCALA_MINIMA,
+                'columnas' => GeometriaTarjeta::COLUMNAS,
+            ],
             'tarjeta' => [
                 'id' => $tarjeta->id,
                 'numero' => $tarjeta->numero,
@@ -477,13 +561,42 @@ class TarjetaController extends Controller
                 'numero' => $hoja['numero'],
                 'cara' => $hoja['cara'],
                 'papel' => $hoja['papel'],
-                'capacidad' => $hoja['capacidad'],
-                'libres' => $hoja['libres'],
+                'banda_mm' => $hoja['banda_mm'],
+                'usado_mm' => $hoja['usado_mm'],
+                'libres_mm' => $hoja['libres_mm'],
+                'escala' => $hoja['escala'],
+                'escala_sugerida' => $hoja['escala_sugerida'],
                 'cerrada' => $hoja['cerrada'],
                 'impresa' => $hoja['impresa'],
                 'desfase_x_mm' => (float) $hoja['desfase_x_mm'],
                 'desfase_y_mm' => (float) $hoja['desfase_y_mm'],
                 'vienen' => (float) $hoja['vienen'],
+                // Las filas tal como van en el papel: los bienes y, entre
+                // ellos, los TOTAL que cierran cada adicion. La pantalla dibuja
+                // la hoja con esto, para que se vea igual que impresa.
+                'filas' => array_map(fn (array $fila) => $fila['tipo'] === 'total'
+                    ? [
+                        'tipo' => 'total',
+                        'monto' => (float) $fila['monto'],
+                        'alto_mm' => $fila['alto_mm'],
+                        'impreso' => $fila['ya_impreso'],
+                    ]
+                    : [
+                        'tipo' => 'renglon',
+                        'renglon_id' => $fila['renglon']->id,
+                        'alto_mm' => $fila['alto_mm'],
+                        'impreso' => $fila['renglon']->yaSeImprimio(),
+                    ], $hoja['filas']),
+
+                // Cierre de la hoja: el VAN que pasa a la siguiente, o el TOTAL
+                // si es la ultima.
+                'cierre' => $hoja['cerrada'] && ! ($hoja['es_ultima'] && $hoja['termina_en_total'])
+                    ? [
+                        'rotulo' => $hoja['es_ultima'] ? 'TOTAL' : 'VAN',
+                        'monto' => (float) ($hoja['total_papel'] ?? $hoja['van']),
+                    ]
+                    : null,
+
                 'renglones' => $hoja['renglones']->map(fn (TarjetaRenglon $r) => [
                     'id' => $r->id,
                     'orden' => $r->orden,
@@ -497,6 +610,9 @@ class TarjetaController extends Controller
                     'observaciones' => $r->observaciones,
                     'lineas_cuenta' => $r->bien->lineasColumnaCuenta(),
                     'impreso' => $r->yaSeImprimio(),
+                    // Lo que mide este renglon en el papel: la pantalla dibuja
+                    // la hoja con las mismas alturas que sale impresa.
+                    'alto_mm' => $this->medidor->altoDeRenglon($r, $hoja['escala']),
                 ])->values(),
             ], $hojas),
         ]);
@@ -509,26 +625,32 @@ class TarjetaController extends Controller
 
         $datos = $request->validate([
             'hoja' => ['required', 'integer', 'min:1', 'max:999'],
-            'desfase_x_mm' => ['required', 'numeric', "min:-{$tope}", "max:{$tope}"],
-            'desfase_y_mm' => ['required', 'numeric', "min:-{$tope}", "max:{$tope}"],
+            // Van sueltos: desde la vista de impresion solo se aprieta el
+            // texto, y el calce que la hoja ya tenia no se toca.
+            'desfase_x_mm' => ['nullable', 'numeric', "min:-{$tope}", "max:{$tope}"],
+            'desfase_y_mm' => ['nullable', 'numeric', "min:-{$tope}", "max:{$tope}"],
+            'escala' => ['nullable', 'numeric', 'min:'.GeometriaTarjeta::ESCALA_MINIMA, 'max:1'],
         ], attributes: [
             'hoja' => 'número de hoja',
             'desfase_x_mm' => 'desplazamiento horizontal',
             'desfase_y_mm' => 'desplazamiento vertical',
+            'escala' => 'ajuste del texto',
         ]);
 
         $papel = $this->tarjetas->guardarCalce(
             $tarjeta,
             $datos['hoja'],
-            (float) $datos['desfase_x_mm'],
-            (float) $datos['desfase_y_mm'],
+            isset($datos['desfase_x_mm']) ? (float) $datos['desfase_x_mm'] : null,
+            isset($datos['desfase_y_mm']) ? (float) $datos['desfase_y_mm'] : null,
+            isset($datos['escala']) ? (float) $datos['escala'] : null,
         );
 
         return back()->with('status', sprintf(
-            'Se guardó el calce de la hoja %d: %s / %s mm.',
+            'Se guardó la hoja %d: calce %s / %s mm, texto al %d %%.',
             $papel->numero,
             $papel->desfase_x_mm,
             $papel->desfase_y_mm,
+            round($papel->escala * 100),
         ));
     }
 

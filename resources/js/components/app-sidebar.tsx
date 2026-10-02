@@ -5,11 +5,13 @@ import { usePermisos } from '@/hooks/use-permisos';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
 import {
+    ArrowRightLeft,
     BarChart3,
     Building2,
     ClipboardList,
     DatabaseBackup,
     FileCheck2,
+    FileMinus2,
     FileSpreadsheet,
     FileText,
     IdCard,
@@ -33,6 +35,8 @@ const navItems: NavItem[] = [
     { title: 'Unidades de servicio', url: '/inventario/unidades', icon: Building2, permiso: 'unidades.ver' },
     { title: 'Reportes', url: '/inventario/reportes', icon: BarChart3, permiso: 'reportes.ver' },
     { title: 'Certificaciones', url: '/inventario/certificaciones', icon: FileCheck2, permiso: 'certificaciones.ver' },
+    { title: 'Traslados', url: '/inventario/traslados', icon: ArrowRightLeft, permiso: 'asignaciones.ver' },
+    { title: 'Bajas', url: '/inventario/bajas', icon: FileMinus2, permiso: 'bajas.ver' },
     { title: 'Importar de Excel', url: '/inventario/importacion', icon: FileSpreadsheet, permiso: 'importaciones.ver' },
 
     // Seguridad

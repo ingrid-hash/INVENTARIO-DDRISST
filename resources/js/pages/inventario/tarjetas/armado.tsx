@@ -74,12 +74,12 @@ interface Props {
     disponibles: Disponible[];
     busqueda: string;
     hojas: Hoja[];
+    pendientes_de_salir: { codigo: string; descripcion: string; razon: string }[];
 }
 
-const quetzales = (v: number) =>
-    v.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const quetzales = (v: number) => v.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponibles, busqueda, hojas }: Props) {
+export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponibles, busqueda, hojas, pendientes_de_salir }: Props) {
     const { puede } = usePermisos();
     const [buscar, setBuscar] = useState(busqueda);
 
@@ -102,11 +102,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
     };
 
     const agregar = (bienId: number) => {
-        router.post(
-            `/inventario/tarjetas/${tarjeta.id}/bienes`,
-            { bien_id: bienId },
-            { preserveScroll: true, preserveState: true },
-        );
+        router.post(`/inventario/tarjetas/${tarjeta.id}/bienes`, { bien_id: bienId }, { preserveScroll: true, preserveState: true });
     };
 
     const quitar = (renglon: Renglon) => {
@@ -155,9 +151,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                             <div className="flex flex-wrap items-center gap-2">
                                 <h1 className="text-foreground text-xl font-semibold">{encabezado.nombre}</h1>
                                 {tarjeta.numero && <Badge variant="secondary">{tarjeta.numero}</Badge>}
-                                {tarjeta.version > 1 && (
-                                    <Badge variant="secondary">versión {tarjeta.version}</Badge>
-                                )}
+                                {tarjeta.version > 1 && <Badge variant="secondary">versión {tarjeta.version}</Badge>}
                                 {!tarjeta.vigente && <Badge variant="outline">Reemplazada</Badge>}
                             </div>
                             <p className="text-muted-foreground mt-1 text-sm">
@@ -170,11 +164,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                         {renglones.length > 0 && puede('tarjetas.imprimir') && (
                             <>
                                 <Button asChild variant="outline" size="sm">
-                                    <a
-                                        href={`/inventario/tarjetas/${tarjeta.id}/imprimir`}
-                                        target="_blank"
-                                        rel="noopener"
-                                    >
+                                    <a href={`/inventario/tarjetas/${tarjeta.id}/imprimir`} target="_blank" rel="noopener">
                                         <Printer className="size-4" />
                                         Imprimir completa
                                     </a>
@@ -188,9 +178,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                             <div className="flex items-center gap-1.5 rounded-md border px-1.5 py-1">
                                                 <Button asChild variant="ghost" size="sm">
                                                     <a
-                                                        href={`/inventario/tarjetas/${tarjeta.id}/imprimir?ensayo=1${
-                                                            hasta ? `&hasta=${hasta}` : ''
-                                                        }`}
+                                                        href={`/inventario/tarjetas/${tarjeta.id}/imprimir?ensayo=1${hasta ? `&hasta=${hasta}` : ''}`}
                                                         target="_blank"
                                                         rel="noopener"
                                                     >
@@ -207,12 +195,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                                     aria-label="Fecha de corte del ensayo"
                                                 />
                                                 {hasta && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => setHasta('')}
-                                                        title="Volver al automático"
-                                                    >
+                                                    <Button variant="ghost" size="sm" onClick={() => setHasta('')} title="Volver al automático">
                                                         Auto
                                                     </Button>
                                                 )}
@@ -220,11 +203,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                         )}
 
                                         <Button asChild variant="outline" size="sm">
-                                            <a
-                                                href={`/inventario/tarjetas/${tarjeta.id}/imprimir?pendientes=1`}
-                                                target="_blank"
-                                                rel="noopener"
-                                            >
+                                            <a href={`/inventario/tarjetas/${tarjeta.id}/imprimir?pendientes=1`} target="_blank" rel="noopener">
                                                 <Printer className="size-4" />
                                                 Imprimir solo lo nuevo
                                             </a>
@@ -274,11 +253,34 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
 
                 <AlertaEstado />
 
+                {/* Bienes que ya no le corresponden a esta persona pero que
+                    siguen escritos en la hoja firmada. */}
+                {pendientes_de_salir.length > 0 && (
+                    <div className="rounded-lg border border-amber-500/60 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                        <p className="font-medium">
+                            {pendientes_de_salir.length === 1
+                                ? 'Hay 1 bien que ya no le corresponde a esta persona.'
+                                : `Hay ${pendientes_de_salir.length} bienes que ya no le corresponden a esta persona.`}
+                        </p>
+                        <ul className="mt-2 list-disc pl-5">
+                            {pendientes_de_salir.map((p) => (
+                                <li key={p.codigo}>
+                                    <span className="font-mono text-xs">{p.codigo}</span> {p.descripcion} — {p.razon}
+                                </li>
+                            ))}
+                        </ul>
+                        <p className="mt-2">
+                            Siguen apareciendo y sumando al saldo porque están escritos en la hoja firmada. Regenere la tarjeta para que salgan: se
+                            emite una versión nueva, que se imprime completa en papel limpio, y la actual queda archivada.
+                        </p>
+                    </div>
+                )}
+
                 {!tarjeta.vigente && (
                     <div className="border-border text-muted-foreground flex gap-2 rounded-lg border border-dashed p-3 text-xs leading-relaxed">
                         <Info className="mt-0.5 size-4 shrink-0" />
-                        Esta es una versión histórica de la tarjeta y no se puede modificar. Se conserva porque es el
-                        documento que el empleado firmó en su momento.
+                        Esta es una versión histórica de la tarjeta y no se puede modificar. Se conserva porque es el documento que el empleado firmó
+                        en su momento.
                     </div>
                 )}
 
@@ -320,15 +322,9 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                             <tr key={`corte-${renglon.id}`} className="bg-muted/60">
                                                 <td colSpan={8} className="px-3 py-1.5">
                                                     <div className="text-muted-foreground flex items-center justify-between text-[0.6875rem] font-medium tracking-wide uppercase">
-                                                        <span>
-                                                            Van Q {quetzales(renglones[indice - 1].saldo)}
-                                                        </span>
-                                                        <span>
-                                                            ── hoja {renglon.hoja_fisica ?? renglon.hoja_estimada} ──
-                                                        </span>
-                                                        <span>
-                                                            Vienen Q {quetzales(renglones[indice - 1].saldo)}
-                                                        </span>
+                                                        <span>Van Q {quetzales(renglones[indice - 1].saldo)}</span>
+                                                        <span>── hoja {renglon.hoja_fisica ?? renglon.hoja_estimada} ──</span>
+                                                        <span>Vienen Q {quetzales(renglones[indice - 1].saldo)}</span>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -342,15 +338,11 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                                     </p>
                                                 ))}
                                             </td>
-                                            <td className="px-3 py-2 text-right align-top tabular-nums">
-                                                {renglon.cantidad}
-                                            </td>
+                                            <td className="px-3 py-2 text-right align-top tabular-nums">{renglon.cantidad}</td>
                                             <td className="max-w-md px-3 py-2 align-top">
                                                 <p className="text-foreground">{renglon.descripcion}</p>
                                                 {renglon.impreso && (
-                                                    <p className="text-muted-foreground mt-0.5 text-xs">
-                                                        Impreso en la hoja {renglon.hoja_fisica}
-                                                    </p>
+                                                    <p className="text-muted-foreground mt-0.5 text-xs">Impreso en la hoja {renglon.hoja_fisica}</p>
                                                 )}
                                             </td>
                                             <td className="px-3 py-2 text-right align-top tabular-nums">
@@ -359,29 +351,24 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                             <td className="px-3 py-2 text-right align-top tabular-nums">
                                                 {renglon.haber > 0 ? quetzales(renglon.haber) : ''}
                                             </td>
-                                            <td className="px-3 py-2 text-right align-top font-medium tabular-nums">
-                                                {quetzales(renglon.saldo)}
-                                            </td>
-                                            <td className="px-3 py-2 align-top font-mono text-xs whitespace-nowrap">
-                                                {renglon.codigo}
-                                            </td>
+                                            <td className="px-3 py-2 text-right align-top font-medium tabular-nums">{quetzales(renglon.saldo)}</td>
+                                            <td className="px-3 py-2 align-top font-mono text-xs whitespace-nowrap">{renglon.codigo}</td>
                                             {tarjeta.vigente && puede('tarjetas.editar') && (
                                                 <td className="px-3 py-2 align-top">
                                                     <div className="flex gap-0.5">
                                                         {/* Corrección de control interno: se marcó
                                                             como impreso algo que no salió en papel. */}
-                                                        {renglon.impreso &&
-                                                            puede('tarjetas.desmarcar_impresion') && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    title="Se marcó como impreso por error: retractar"
-                                                                    className="size-7"
-                                                                    onClick={() => setRetractando(renglon)}
-                                                                >
-                                                                    <Undo2 className="size-3.5" />
-                                                                </Button>
-                                                            )}
+                                                        {renglon.impreso && puede('tarjetas.desmarcar_impresion') && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                title="Se marcó como impreso por error: retractar"
+                                                                className="size-7"
+                                                                onClick={() => setRetractando(renglon)}
+                                                            >
+                                                                <Undo2 className="size-3.5" />
+                                                            </Button>
+                                                        )}
 
                                                         <Button
                                                             variant="ghost"
@@ -415,9 +402,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                                     <td colSpan={5} className="px-3 py-2.5 text-right text-xs font-bold uppercase">
                                         Total
                                     </td>
-                                    <td className="px-3 py-2.5 text-right font-bold tabular-nums">
-                                        Q {quetzales(tarjeta.saldo_total)}
-                                    </td>
+                                    <td className="px-3 py-2.5 text-right font-bold tabular-nums">Q {quetzales(tarjeta.saldo_total)}</td>
                                     <td colSpan={2} />
                                 </tr>
                             </tfoot>
@@ -432,8 +417,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                         <div>
                             <p className="text-foreground font-medium">Agregar bienes</p>
                             <p className="text-muted-foreground text-sm">
-                                Busque por código o por nombre. Solo aparecen los bienes que no están asignados a
-                                nadie más.
+                                Busque por código o por nombre. Solo aparecen los bienes que no están asignados a nadie más.
                             </p>
                         </div>
 
@@ -457,44 +441,29 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                             <div className="border-border overflow-hidden rounded-lg border">
                                 {disponibles.length === 0 ? (
                                     <p className="text-muted-foreground px-4 py-6 text-center text-sm">
-                                        Ningún bien libre coincide con «{busqueda}». Puede que ya esté asignado a otro
-                                        empleado o dado de baja.
+                                        Ningún bien libre coincide con «{busqueda}». Puede que ya esté asignado a otro empleado o dado de baja.
                                     </p>
                                 ) : (
                                     <ul className="divide-border divide-y">
                                         {disponibles.map((bien) => (
-                                            <li
-                                                key={bien.id}
-                                                className="hover:bg-muted/40 flex items-center justify-between gap-3 px-4 py-2.5"
-                                            >
+                                            <li key={bien.id} className="hover:bg-muted/40 flex items-center justify-between gap-3 px-4 py-2.5">
                                                 <div className="min-w-0">
                                                     <p className="flex flex-wrap items-center gap-2">
-                                                        <span className="text-foreground font-mono text-sm font-medium">
-                                                            {bien.codigo}
-                                                        </span>
+                                                        <span className="text-foreground font-mono text-sm font-medium">{bien.codigo}</span>
                                                         {bien.cuenta && (
-                                                            <span className="text-muted-foreground font-mono text-xs">
-                                                                {bien.cuenta}
-                                                            </span>
+                                                            <span className="text-muted-foreground font-mono text-xs">{bien.cuenta}</span>
                                                         )}
                                                         {!bien.unidad_propia && (
-                                                            <Badge
-                                                                variant="outline"
-                                                                className="text-mspas-amber border-mspas-amber text-xs"
-                                                            >
+                                                            <Badge variant="outline" className="text-mspas-amber border-mspas-amber text-xs">
                                                                 otra unidad
                                                             </Badge>
                                                         )}
                                                     </p>
-                                                    <p className="text-muted-foreground truncate text-sm">
-                                                        {bien.descripcion}
-                                                    </p>
+                                                    <p className="text-muted-foreground truncate text-sm">{bien.descripcion}</p>
                                                 </div>
 
                                                 <div className="flex shrink-0 items-center gap-3">
-                                                    <span className="text-sm tabular-nums">
-                                                        Q {quetzales(bien.total)}
-                                                    </span>
+                                                    <span className="text-sm tabular-nums">Q {quetzales(bien.total)}</span>
                                                     <Button size="sm" onClick={() => agregar(bien.id)}>
                                                         <Plus className="size-4" />
                                                         Agregar
@@ -509,13 +478,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
                     </section>
                 )}
             </div>
-            {retractando && (
-                <DialogRetractar
-                    tarjetaId={tarjeta.id}
-                    renglon={retractando}
-                    onCerrar={() => setRetractando(null)}
-                />
-            )}
+            {retractando && <DialogRetractar tarjetaId={tarjeta.id} renglon={retractando} onCerrar={() => setRetractando(null)} />}
         </AppLayout>
     );
 }
@@ -526,15 +489,7 @@ export default function ArmadoTarjeta({ tarjeta, encabezado, renglones, disponib
  * Exige una justificación porque queda asentada en la bitácora: es una
  * corrección sobre un documento que puede estar firmado.
  */
-function DialogRetractar({
-    tarjetaId,
-    renglon,
-    onCerrar,
-}: {
-    tarjetaId: number;
-    renglon: Renglon;
-    onCerrar: () => void;
-}) {
+function DialogRetractar({ tarjetaId, renglon, onCerrar }: { tarjetaId: number; renglon: Renglon; onCerrar: () => void }) {
     const [motivo, setMotivo] = useState('');
     const [enviando, setEnviando] = useState(false);
 
@@ -561,14 +516,13 @@ function DialogRetractar({
                 <DialogHeader>
                     <DialogTitle>Retractar la impresión</DialogTitle>
                     <DialogDescription>
-                        El bien <span className="font-mono">{renglon.codigo}</span> volverá a quedar
-                        pendiente de imprimir en la hoja {renglon.hoja_fisica}.
+                        El bien <span className="font-mono">{renglon.codigo}</span> volverá a quedar pendiente de imprimir en la hoja{' '}
+                        {renglon.hoja_fisica}.
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="border-amber-500/60 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200 rounded-md border px-3 py-2 text-sm">
-                    Esto no borra la tinta del papel. Si la hoja ya salió de la impresora, tendrá que
-                    descartarla o volver a imprimirla completa.
+                <div className="rounded-md border border-amber-500/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    Esto no borra la tinta del papel. Si la hoja ya salió de la impresora, tendrá que descartarla o volver a imprimirla completa.
                 </div>
 
                 <div className="grid gap-2">
@@ -581,9 +535,7 @@ function DialogRetractar({
                         placeholder="Explique qué pasó: por ejemplo, se marcó por error y la hoja nunca se imprimió."
                         className="border-input placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border bg-transparent px-3 py-2 text-sm focus-visible:ring-1 focus-visible:outline-none"
                     />
-                    <p className="text-muted-foreground text-xs">
-                        Queda registrada en la bitácora con su usuario y la fecha. Mínimo 10 caracteres.
-                    </p>
+                    <p className="text-muted-foreground text-xs">Queda registrada en la bitácora con su usuario y la fecha. Mínimo 10 caracteres.</p>
                 </div>
 
                 <div className="flex justify-end gap-2">
@@ -608,15 +560,7 @@ function Campo({ etiqueta, valor }: { etiqueta: string; valor: string | null }) 
     );
 }
 
-function EstadoHojas({
-    hojas,
-    tarjetaId,
-    renglones,
-}: {
-    hojas: Hoja[];
-    tarjetaId: number;
-    renglones: Renglon[];
-}) {
+function EstadoHojas({ hojas, tarjetaId, renglones }: { hojas: Hoja[]; tarjetaId: number; renglones: Renglon[] }) {
     const { puede } = usePermisos();
 
     const registrarImpresion = (hoja: Hoja) => {
@@ -630,11 +574,7 @@ function EstadoHojas({
             : `¿Registrar que los ${pendientes.length} renglón(es) pendientes se imprimieron en la hoja ${hoja.numero} (${hoja.cara})?`;
 
         if (window.confirm(aviso)) {
-            router.post(
-                `/inventario/tarjetas/${tarjetaId}/impresion`,
-                { hoja: hoja.numero, renglones: pendientes },
-                { preserveScroll: true },
-            );
+            router.post(`/inventario/tarjetas/${tarjetaId}/impresion`, { hoja: hoja.numero, renglones: pendientes }, { preserveScroll: true });
         }
     };
 
@@ -642,9 +582,7 @@ function EstadoHojas({
         <section className="border-border bg-card grid gap-3 rounded-xl border p-5">
             <div>
                 <p className="text-foreground font-medium">Hojas de papel</p>
-                <p className="text-muted-foreground text-sm">
-                    Las hojas impares van al frente y las pares al reverso: cada papel lleva dos.
-                </p>
+                <p className="text-muted-foreground text-sm">Las hojas impares van al frente y las pares al reverso: cada papel lleva dos.</p>
             </div>
 
             <div className="grid gap-2">
@@ -687,8 +625,8 @@ function EstadoHojas({
             {hojas.some((h) => h.reutiliza_hoja) && (
                 <p className="text-muted-foreground border-border flex gap-2 border-t pt-3 text-xs leading-relaxed">
                     <Info className="mt-0.5 size-3.5 shrink-0" />
-                    La última hoja ya impresa tiene espacio libre: los renglones nuevos continúan ahí, y lo ya
-                    impreso se deja en blanco para no imprimir encima.
+                    La última hoja ya impresa tiene espacio libre: los renglones nuevos continúan ahí, y lo ya impreso se deja en blanco para no
+                    imprimir encima.
                 </p>
             )}
         </section>

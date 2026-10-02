@@ -22,6 +22,8 @@ class TarjetaRenglon extends Model
         'saldo',
         'total_corte_original',
         'hoja_fisica',
+        'alto_mm',
+        'lineas',
         'impreso_at',
         'observaciones',
     ];
@@ -34,6 +36,8 @@ class TarjetaRenglon extends Model
             'haber' => 'decimal:2',
             'saldo' => 'decimal:2',
             'total_corte_original' => 'decimal:2',
+            'alto_mm' => 'float',
+            'lineas' => 'integer',
             'hoja_fisica' => 'integer',
             'impreso_at' => 'datetime',
         ];

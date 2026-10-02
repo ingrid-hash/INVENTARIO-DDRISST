@@ -2,8 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\Asignacion;
 use App\Models\Bien;
+use App\Models\Empleado;
+use App\Models\Renglon;
 use App\Models\UnidadServicio;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -25,6 +29,7 @@ class ReporteInventario
         'forma_adquisicion' => 'Forma de adquisición',
         'tipo_movimiento' => 'Tipo de movimiento',
         'programa' => 'Programa donante',
+        'empleado' => 'Empleado responsable',
         'ninguna' => 'Sin agrupar',
     ];
 
@@ -46,7 +51,9 @@ class ReporteInventario
             $agrupar = 'unidad';
         }
 
-        $bienes = $this->consulta($filtros)->get();
+        $bienes = $this->consulta($filtros)
+            ->with('asignacionVigente.empleado:id,nombre_completo')
+            ->get();
 
         $grupos = $bienes
             ->groupBy(fn (Bien $bien) => $this->clave($bien, $agrupar))
@@ -91,6 +98,15 @@ class ReporteInventario
             ->when(! empty($filtros['renglon_id']),
                 fn (Builder $q) => $q->where('renglon_id', $filtros['renglon_id']))
 
+            // Los bienes que tiene a su cargo una persona hoy. No se agrega
+            // como columna del listado: para eso esta la tarjeta, que es el
+            // documento donde esa responsabilidad consta.
+            ->when(! empty($filtros['empleado_id']),
+                fn (Builder $q) => $q->whereHas(
+                    'asignacionVigente',
+                    fn (Builder $a) => $a->where('empleado_id', $filtros['empleado_id']),
+                ))
+
             ->when(! empty($filtros['tipo_movimiento']),
                 fn (Builder $q) => $q->where('tipo_movimiento', $filtros['tipo_movimiento']))
 
@@ -120,6 +136,65 @@ class ReporteInventario
             ->orderBy('codigo');
     }
 
+    /**
+     * Los traslados de bienes entre empleados.
+     *
+     * Salen de las custodias que se cerraron por traslado: cada una dice de
+     * quien salio el bien, y la custodia que sigue dice a quien paso.
+     *
+     * @param  array<string, mixed>  $filtros
+     * @return array{movimientos: Collection<int, array<string, mixed>>, total: int, valor: float}
+     */
+    public function traslados(array $filtros): array
+    {
+        $movimientos = Asignacion::query()
+            ->with(['bien:id,codigo,descripcion,total,unidad_servicio_id', 'bien.unidadServicio:id,nombre',
+                'bien.asignacionVigente.empleado:id,nombre_completo', 'empleado:id,nombre_completo'])
+            ->where('motivo_cierre', 'traslado')
+
+            ->when(! empty($filtros['empleado_id']), fn ($q) => $q->where(function ($sub) use ($filtros) {
+                // La persona puede aparecer como quien lo entrego o como quien
+                // lo recibio: las dos cosas son su historia.
+                $sub->where('empleado_id', $filtros['empleado_id'])
+                    ->orWhereHas('bien.asignacionVigente',
+                        fn ($a) => $a->where('empleado_id', $filtros['empleado_id']));
+            }))
+
+            ->when(! empty($filtros['desde']),
+                fn ($q) => $q->whereDate('fecha_devolucion', '>=', $filtros['desde']))
+
+            ->when(! empty($filtros['hasta']),
+                fn ($q) => $q->whereDate('fecha_devolucion', '<=', $filtros['hasta']))
+
+            ->when(! empty($filtros['unidad_servicio_id']),
+                fn ($q) => $q->whereHas('bien',
+                    fn ($b) => $b->where('unidad_servicio_id', $filtros['unidad_servicio_id'])))
+
+            ->when(! empty($filtros['buscar']),
+                fn ($q) => $q->whereHas('bien', fn ($b) => $b->buscar((string) $filtros['buscar'])))
+
+            ->latest('fecha_devolucion')
+            ->latest('id')
+            ->get()
+            ->map(fn (Asignacion $a) => [
+                'id' => $a->id,
+                'codigo' => $a->bien?->codigo,
+                'descripcion' => $a->bien?->descripcion,
+                'valor' => (float) ($a->bien?->total ?? 0),
+                'unidad' => $a->bien?->unidadServicio?->nombre,
+                'de' => $a->empleado?->nombre_completo,
+                'a' => $a->bien?->asignacionVigente?->empleado?->nombre_completo,
+                'fecha' => $a->fecha_devolucion?->format('d/m/Y'),
+                'motivo' => $a->observaciones,
+            ]);
+
+        return [
+            'movimientos' => $movimientos,
+            'total' => $movimientos->count(),
+            'valor' => round((float) $movimientos->sum('valor'), 2),
+        ];
+    }
+
     /** El rotulo del grupo al que pertenece un bien. */
     private function clave(Bien $bien, string $agrupar): string
     {
@@ -137,6 +212,7 @@ class ReporteInventario
                 ? 'Adición'
                 : 'Apertura de inventario',
             'programa' => $bien->programa ?: 'Sin programa',
+            'empleado' => $bien->asignacionVigente?->empleado?->nombre_completo ?? 'Sin responsable',
             default => 'Inventario',
         };
     }
@@ -159,8 +235,15 @@ class ReporteInventario
             }
         }
 
+        if (! empty($filtros['empleado_id'])) {
+            $empleado = Empleado::find($filtros['empleado_id']);
+            if ($empleado) {
+                $texto[] = 'Empleado: '.$empleado->nombre_completo;
+            }
+        }
+
         if (! empty($filtros['renglon_id'])) {
-            $renglon = \App\Models\Renglon::find($filtros['renglon_id']);
+            $renglon = Renglon::find($filtros['renglon_id']);
             if ($renglon) {
                 $texto[] = 'Cuenta: '.$renglon->codigo.' '.$renglon->nombre;
             }
@@ -199,7 +282,7 @@ class ReporteInventario
     private function fecha(string $valor): string
     {
         try {
-            return \Carbon\CarbonImmutable::parse($valor)->format('d/m/Y');
+            return CarbonImmutable::parse($valor)->format('d/m/Y');
         } catch (\Throwable) {
             return $valor;
         }

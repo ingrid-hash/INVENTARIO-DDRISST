@@ -44,9 +44,25 @@ interface Props {
         total_cantidad: number;
         total_valor: number;
     };
+    traslados: {
+        movimientos: {
+            id: number;
+            codigo: string | null;
+            descripcion: string | null;
+            valor: number;
+            unidad: string | null;
+            de: string | null;
+            a: string | null;
+            fecha: string | null;
+            motivo: string | null;
+        }[];
+        total: number;
+        valor: number;
+    } | null;
     catalogos: {
         unidades: { id: number; codigo: string; nombre: string }[];
         cuentas: { id: number; codigo: string; nombre: string }[];
+        empleados: { id: number; nombre_completo: string }[];
         agrupaciones: Record<string, string>;
     };
 }
@@ -56,15 +72,15 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Reportes', href: '/inventario/reportes' },
 ];
 
-const quetzales = (valor: number) =>
-    `Q ${valor.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const quetzales = (valor: number) => `Q ${valor.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export default function Reportes({ filtros, reporte, catalogos }: Props) {
+export default function Reportes({ filtros, reporte, traslados, catalogos }: Props) {
     const { puede } = usePermisos();
 
     const [form, setForm] = useState({
         unidad_servicio_id: filtros.unidad_servicio_id ? String(filtros.unidad_servicio_id) : TODOS,
         renglon_id: filtros.renglon_id ? String(filtros.renglon_id) : TODOS,
+        empleado_id: filtros.empleado_id ? String(filtros.empleado_id) : TODOS,
         tipo_movimiento: (filtros.tipo_movimiento as string) ?? TODOS,
         forma_adquisicion: (filtros.forma_adquisicion as string) ?? TODOS,
         estado: (filtros.estado as string) ?? TODOS,
@@ -73,16 +89,17 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
         buscar: (filtros.buscar as string) ?? '',
         desde: (filtros.desde as string) ?? '',
         hasta: (filtros.hasta as string) ?? '',
+        tipo: (filtros.tipo as string) ?? 'inventario',
     });
 
-    /** Deja fuera los «todos» y los campos vacíos antes de ir al servidor. */
-    const parametros = () =>
-        Object.fromEntries(
-            Object.entries(form).filter(([, valor]) => valor !== '' && valor !== TODOS),
-        );
+    const verTraslados = form.tipo === 'traslados';
 
-    const consultar = () =>
-        router.get('/inventario/reportes', parametros(), { preserveState: true, replace: true });
+    const cambiarTipo = (tipo: string) => router.get('/inventario/reportes', tipo === 'traslados' ? { tipo } : {}, { preserveState: false });
+
+    /** Deja fuera los «todos» y los campos vacíos antes de ir al servidor. */
+    const parametros = () => Object.fromEntries(Object.entries(form).filter(([, valor]) => valor !== '' && valor !== TODOS));
+
+    const consultar = () => router.get('/inventario/reportes', parametros(), { preserveState: true, replace: true });
 
     const limpiar = () => router.get('/inventario/reportes', {}, { preserveState: false });
 
@@ -99,18 +116,32 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                         <h1 className="text-xl font-semibold">Reportes del inventario</h1>
-                        <p className="text-muted-foreground text-sm">
-                            Un reporte general de los bienes.
-                        </p>
+                        <div className="mt-2 flex gap-1">
+                            {[
+                                ['inventario', 'Bienes'],
+                                ['traslados', 'Traslados'],
+                            ].map(([clave, rotulo]) => (
+                                <Button
+                                    key={clave}
+                                    size="sm"
+                                    variant={form.tipo === clave ? 'default' : 'outline'}
+                                    onClick={() => cambiarTipo(clave)}
+                                >
+                                    {rotulo}
+                                </Button>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="flex gap-2">
-                        <Button asChild variant="outline" size="sm">
-                            <a href={enlace('/inventario/reportes/imprimir')} target="_blank" rel="noopener">
-                                <Printer className="size-4" />
-                                Imprimir o PDF
-                            </a>
-                        </Button>
+                        {!verTraslados && (
+                            <Button asChild variant="outline" size="sm">
+                                <a href={enlace('/inventario/reportes/imprimir')} target="_blank" rel="noopener">
+                                    <Printer className="size-4" />
+                                    Imprimir o PDF
+                                </a>
+                            </Button>
+                        )}
 
                         {puede('reportes.exportar') && (
                             <Button asChild size="sm">
@@ -132,10 +163,7 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
 
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <Campo id="unidad" etiqueta="Unidad de servicio">
-                            <Select
-                                value={form.unidad_servicio_id}
-                                onValueChange={(v) => setForm({ ...form, unidad_servicio_id: v })}
-                            >
+                            <Select value={form.unidad_servicio_id} onValueChange={(v) => setForm({ ...form, unidad_servicio_id: v })}>
                                 <SelectTrigger id="unidad">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -151,10 +179,7 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
                         </Campo>
 
                         <Campo id="cuenta" etiqueta="Cuenta presupuestaria">
-                            <Select
-                                value={form.renglon_id}
-                                onValueChange={(v) => setForm({ ...form, renglon_id: v })}
-                            >
+                            <Select value={form.renglon_id} onValueChange={(v) => setForm({ ...form, renglon_id: v })}>
                                 <SelectTrigger id="cuenta">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -170,10 +195,7 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
                         </Campo>
 
                         <Campo id="movimiento" etiqueta="Tipo de movimiento">
-                            <Select
-                                value={form.tipo_movimiento}
-                                onValueChange={(v) => setForm({ ...form, tipo_movimiento: v })}
-                            >
+                            <Select value={form.tipo_movimiento} onValueChange={(v) => setForm({ ...form, tipo_movimiento: v })}>
                                 <SelectTrigger id="movimiento">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -186,10 +208,7 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
                         </Campo>
 
                         <Campo id="adquisicion" etiqueta="Forma de adquisición">
-                            <Select
-                                value={form.forma_adquisicion}
-                                onValueChange={(v) => setForm({ ...form, forma_adquisicion: v })}
-                            >
+                            <Select value={form.forma_adquisicion} onValueChange={(v) => setForm({ ...form, forma_adquisicion: v })}>
                                 <SelectTrigger id="adquisicion">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -226,21 +245,27 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
                         </Campo>
 
                         <Campo id="desde" etiqueta="Ingreso desde">
-                            <Input
-                                id="desde"
-                                type="date"
-                                value={form.desde}
-                                onChange={(e) => setForm({ ...form, desde: e.target.value })}
-                            />
+                            <Input id="desde" type="date" value={form.desde} onChange={(e) => setForm({ ...form, desde: e.target.value })} />
                         </Campo>
 
                         <Campo id="hasta" etiqueta="Ingreso hasta">
-                            <Input
-                                id="hasta"
-                                type="date"
-                                value={form.hasta}
-                                onChange={(e) => setForm({ ...form, hasta: e.target.value })}
-                            />
+                            <Input id="hasta" type="date" value={form.hasta} onChange={(e) => setForm({ ...form, hasta: e.target.value })} />
+                        </Campo>
+
+                        <Campo id="empleado" etiqueta="Empleado responsable">
+                            <Select value={form.empleado_id} onValueChange={(v) => setForm({ ...form, empleado_id: v })}>
+                                <SelectTrigger id="empleado">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={TODOS}>Todos</SelectItem>
+                                    {catalogos.empleados.map((e) => (
+                                        <SelectItem key={e.id} value={String(e.id)}>
+                                            {e.nombre_completo}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </Campo>
 
                         <Campo id="estado" etiqueta="Estado">
@@ -251,16 +276,14 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
                                 <SelectContent>
                                     <SelectItem value={TODOS}>Todos</SelectItem>
                                     <SelectItem value="activo">Activos</SelectItem>
+                                    <SelectItem value="baja_solicitada">Baja en trámite</SelectItem>
                                     <SelectItem value="baja">Dados de baja</SelectItem>
                                 </SelectContent>
                             </Select>
                         </Campo>
 
                         <Campo id="agrupar" etiqueta="Agrupar por">
-                            <Select
-                                value={form.agrupar_por}
-                                onValueChange={(v) => setForm({ ...form, agrupar_por: v })}
-                            >
+                            <Select value={form.agrupar_por} onValueChange={(v) => setForm({ ...form, agrupar_por: v })}>
                                 <SelectTrigger id="agrupar">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -288,100 +311,134 @@ export default function Reportes({ filtros, reporte, catalogos }: Props) {
                 </div>
 
                 {/* --- Resumen --- */}
-                <div className="grid gap-3 sm:grid-cols-3">
-                    <Resumen rotulo="Bienes" valor={String(reporte.total_bienes)} />
-                    <Resumen rotulo="Unidades contadas" valor={String(reporte.total_cantidad)} />
-                    <Resumen rotulo="Valor total" valor={quetzales(reporte.total_valor)} destacado />
-                </div>
+                {verTraslados ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <Resumen rotulo="Traslados" valor={String(traslados?.total ?? 0)} />
+                        <Resumen rotulo="Valor trasladado" valor={quetzales(traslados?.valor ?? 0)} destacado />
+                    </div>
+                ) : (
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        <Resumen rotulo="Bienes" valor={String(reporte.total_bienes)} />
+                        <Resumen rotulo="Unidades contadas" valor={String(reporte.total_cantidad)} />
+                        <Resumen rotulo="Valor total" valor={quetzales(reporte.total_valor)} destacado />
+                    </div>
+                )}
+
+                {/* --- Traslados --- */}
+                {verTraslados && (
+                    <div className="bg-card overflow-x-auto rounded-lg border">
+                        <table className="w-full text-sm">
+                            <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
+                                <tr>
+                                    <th className="px-3 py-2 text-left font-medium">Código</th>
+                                    <th className="px-3 py-2 text-left font-medium">Descripción</th>
+                                    <th className="px-3 py-2 text-right font-medium">Valor</th>
+                                    <th className="px-3 py-2 text-left font-medium">De</th>
+                                    <th className="px-3 py-2 text-left font-medium">A</th>
+                                    <th className="px-3 py-2 text-left font-medium">Fecha</th>
+                                    <th className="px-3 py-2 text-left font-medium">Motivo</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(traslados?.movimientos.length ?? 0) === 0 && (
+                                    <tr>
+                                        <td colSpan={7} className="text-muted-foreground px-3 py-6 text-center">
+                                            No hay traslados que mostrar con estos filtros.
+                                        </td>
+                                    </tr>
+                                )}
+
+                                {traslados?.movimientos.map((m) => (
+                                    <tr key={m.id} className="border-t align-top">
+                                        <td className="px-3 py-2 font-mono text-xs">{m.codigo}</td>
+                                        <td className="max-w-sm px-3 py-2">
+                                            {m.descripcion}
+                                            <span className="text-muted-foreground block text-xs">{m.unidad}</span>
+                                        </td>
+                                        <td className="px-3 py-2 text-right tabular-nums">{quetzales(m.valor)}</td>
+                                        <td className="px-3 py-2">{m.de ?? '—'}</td>
+                                        <td className="px-3 py-2">{m.a ?? '—'}</td>
+                                        <td className="px-3 py-2 whitespace-nowrap">{m.fecha}</td>
+                                        <td className="text-muted-foreground px-3 py-2 text-xs">{m.motivo ?? '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
 
                 {/* --- Resultado --- */}
-                <div className="bg-card overflow-x-auto rounded-lg border">
-                    <table className="w-full text-sm">
-                        <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
-                            <tr>
-                                <th className="px-3 py-2 text-left font-medium">Código</th>
-                                <th className="px-3 py-2 text-left font-medium">Descripción</th>
-                                <th className="px-3 py-2 text-right font-medium">Cant.</th>
-                                <th className="px-3 py-2 text-right font-medium">Valor unitario</th>
-                                <th className="px-3 py-2 text-right font-medium">Valor total</th>
-                                <th className="px-3 py-2 text-left font-medium">Cuenta</th>
-                                <th className="px-3 py-2 text-left font-medium">Adquisición</th>
-                                <th className="px-3 py-2 text-left font-medium">Ingreso</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {reporte.grupos.length === 0 && (
+                {!verTraslados && (
+                    <div className="bg-card overflow-x-auto rounded-lg border">
+                        <table className="w-full text-sm">
+                            <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
                                 <tr>
-                                    <td colSpan={8} className="text-muted-foreground px-3 py-10 text-center">
-                                        Ningún bien coincide con los filtros indicados.
-                                    </td>
+                                    <th className="px-3 py-2 text-left font-medium">Código</th>
+                                    <th className="px-3 py-2 text-left font-medium">Descripción</th>
+                                    <th className="px-3 py-2 text-right font-medium">Cant.</th>
+                                    <th className="px-3 py-2 text-right font-medium">Valor unitario</th>
+                                    <th className="px-3 py-2 text-right font-medium">Valor total</th>
+                                    <th className="px-3 py-2 text-left font-medium">Cuenta</th>
+                                    <th className="px-3 py-2 text-left font-medium">Adquisición</th>
+                                    <th className="px-3 py-2 text-left font-medium">Ingreso</th>
                                 </tr>
-                            )}
-
-                            {reporte.grupos.map((grupo) => (
-                                <>
-                                    <tr key={`g-${grupo.rotulo}`} className="bg-muted/40">
-                                        <td colSpan={8} className="px-3 py-2 text-xs font-semibold uppercase">
-                                            {grupo.rotulo}
+                            </thead>
+                            <tbody>
+                                {reporte.grupos.length === 0 && (
+                                    <tr>
+                                        <td colSpan={8} className="text-muted-foreground px-3 py-10 text-center">
+                                            Ningún bien coincide con los filtros indicados.
                                         </td>
                                     </tr>
+                                )}
 
-                                    {grupo.bienes.map((b) => (
-                                        <tr key={b.id} className="border-t">
-                                            <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
-                                                {b.codigo}
-                                            </td>
-                                            <td className="max-w-md px-3 py-2">{b.descripcion}</td>
-                                            <td className="px-3 py-2 text-right tabular-nums">{b.cantidad}</td>
-                                            <td className="px-3 py-2 text-right tabular-nums">
-                                                {quetzales(b.precio_unitario)}
-                                            </td>
-                                            <td className="px-3 py-2 text-right tabular-nums">
-                                                {quetzales(b.total)}
-                                            </td>
-                                            <td className="px-3 py-2 whitespace-nowrap">{b.cuenta ?? '—'}</td>
-                                            <td className="px-3 py-2 whitespace-nowrap">
-                                                {b.forma_adquisicion === 'donacion'
-                                                    ? `Donación${b.programa ? ` · ${b.programa}` : ''}`
-                                                    : b.forma_adquisicion === 'compra'
-                                                      ? 'Compra'
-                                                      : '—'}
-                                            </td>
-                                            <td className="px-3 py-2 whitespace-nowrap">
-                                                {b.fecha_ingreso ?? '—'}
+                                {reporte.grupos.map((grupo) => (
+                                    <>
+                                        <tr key={`g-${grupo.rotulo}`} className="bg-muted/40">
+                                            <td colSpan={8} className="px-3 py-2 text-xs font-semibold uppercase">
+                                                {grupo.rotulo}
                                             </td>
                                         </tr>
-                                    ))}
 
-                                    <tr key={`s-${grupo.rotulo}`} className="border-t-2 font-medium">
-                                        <td className="px-3 py-2" />
-                                        <td className="px-3 py-2 text-right">Subtotal</td>
-                                        <td className="px-3 py-2 text-right tabular-nums">{grupo.cantidad}</td>
-                                        <td className="px-3 py-2" />
-                                        <td className="px-3 py-2 text-right tabular-nums">
-                                            {quetzales(grupo.valor)}
-                                        </td>
-                                        <td className="px-3 py-2" colSpan={3} />
-                                    </tr>
-                                </>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                                        {grupo.bienes.map((b) => (
+                                            <tr key={b.id} className="border-t">
+                                                <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{b.codigo}</td>
+                                                <td className="max-w-md px-3 py-2">{b.descripcion}</td>
+                                                <td className="px-3 py-2 text-right tabular-nums">{b.cantidad}</td>
+                                                <td className="px-3 py-2 text-right tabular-nums">{quetzales(b.precio_unitario)}</td>
+                                                <td className="px-3 py-2 text-right tabular-nums">{quetzales(b.total)}</td>
+                                                <td className="px-3 py-2 whitespace-nowrap">{b.cuenta ?? '—'}</td>
+                                                <td className="px-3 py-2 whitespace-nowrap">
+                                                    {b.forma_adquisicion === 'donacion'
+                                                        ? `Donación${b.programa ? ` · ${b.programa}` : ''}`
+                                                        : b.forma_adquisicion === 'compra'
+                                                          ? 'Compra'
+                                                          : '—'}
+                                                </td>
+                                                <td className="px-3 py-2 whitespace-nowrap">{b.fecha_ingreso ?? '—'}</td>
+                                            </tr>
+                                        ))}
+
+                                        <tr key={`s-${grupo.rotulo}`} className="border-t-2 font-medium">
+                                            <td className="px-3 py-2" />
+                                            <td className="px-3 py-2 text-right">Subtotal</td>
+                                            <td className="px-3 py-2 text-right tabular-nums">{grupo.cantidad}</td>
+                                            <td className="px-3 py-2" />
+                                            <td className="px-3 py-2 text-right tabular-nums">{quetzales(grupo.valor)}</td>
+                                            <td className="px-3 py-2" colSpan={3} />
+                                        </tr>
+                                    </>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
         </AppLayout>
     );
 }
 
-function Campo({
-    id,
-    etiqueta,
-    children,
-}: {
-    id: string;
-    etiqueta: string;
-    children: React.ReactNode;
-}) {
+function Campo({ id, etiqueta, children }: { id: string; etiqueta: string; children: React.ReactNode }) {
     return (
         <div className="grid gap-2">
             <Label htmlFor={id} className="text-xs">
@@ -392,21 +449,11 @@ function Campo({
     );
 }
 
-function Resumen({
-    rotulo,
-    valor,
-    destacado = false,
-}: {
-    rotulo: string;
-    valor: string;
-    destacado?: boolean;
-}) {
+function Resumen({ rotulo, valor, destacado = false }: { rotulo: string; valor: string; destacado?: boolean }) {
     return (
         <div className="bg-card rounded-lg border p-4">
             <p className="text-muted-foreground text-xs uppercase">{rotulo}</p>
-            <p className={`mt-1 tabular-nums ${destacado ? 'text-2xl font-semibold' : 'text-xl'}`}>
-                {valor}
-            </p>
+            <p className={`mt-1 tabular-nums ${destacado ? 'text-2xl font-semibold' : 'text-xl'}`}>{valor}</p>
         </div>
     );
 }

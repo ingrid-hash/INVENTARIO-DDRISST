@@ -6,15 +6,15 @@ use App\Models\Tarjeta;
 use App\Models\TarjetaRenglon;
 use Illuminate\Support\Collection;
 
-
 class PaginadorTarjeta
 {
+    public function __construct(private readonly MedidorTarjeta $medidor) {}
+
     /**
-     * @return array<int, array<string, mixed>>  una entrada por hoja de papel
+     * @return array<int, array<string, mixed>> una entrada por hoja de papel
      */
     public function paginar(Tarjeta $tarjeta): array
     {
-        $porHoja = max(1, $tarjeta->renglones_por_hoja);
         $renglones = $tarjeta->renglones()->with('bien.renglon')->orderBy('orden')->get();
 
         // El calce y el estado de cada papel viven aparte de los renglones.
@@ -24,7 +24,7 @@ class PaginadorTarjeta
         // repartir: dependen del orden de las adiciones, no de la hoja.
         $cierres = $this->cierresDeAdicion($renglones);
 
-        $asignacion = $this->repartirEnHojas($renglones, $porHoja, $cierres);
+        $asignacion = $this->repartirEnHojas($renglones, $cierres, $estadoDeHoja);
 
         // El TOTAL de la tarjeta lo cierra la ultima hoja. Si el papel traia ese
         // total escrito, es el que vale, igual que en los cortes de adicion.
@@ -37,24 +37,32 @@ class PaginadorTarjeta
         $saldoAcumulado = 0.0;
 
         foreach ($asignacion as $numero => $delaHoja) {
+            $estado = $estadoDeHoja[$numero] ?? null;
+            $cara = Tarjeta::caraDeHoja($numero);
+            $escala = $estado?->escala ?? 1.0;
+
             $vienen = $saldoAcumulado;
             $filas = [];
-            $ocupadas = 0;
+            $usadoMm = 0.0;
 
             foreach ($delaHoja as $renglon) {
                 $saldoAcumulado += (float) $renglon->debe - (float) $renglon->haber;
 
-                $filas[] = ['tipo' => 'renglon', 'renglon' => $renglon];
-                $ocupadas++;
+                $alto = $this->medidor->altoDeRenglon($renglon, $escala);
+                $usadoMm += $alto;
+
+                $filas[] = ['tipo' => 'renglon', 'renglon' => $renglon, 'alto_mm' => $alto];
 
                 if (! isset($cierres[$renglon->id])) {
                     continue;
                 }
 
-                
                 $literal = $renglon->total_corte_original !== null
                     ? (float) $renglon->total_corte_original
                     : null;
+
+                $altoCorte = $this->medidor->altoDeCorte($escala);
+                $usadoMm += $altoCorte;
 
                 $filas[] = [
                     'tipo' => 'total',
@@ -63,29 +71,29 @@ class PaginadorTarjeta
                     'literal' => $literal,
                     'cuadra' => $literal === null || abs($literal - $saldoAcumulado) < 0.01,
                     'ya_impreso' => $renglon->yaSeImprimio(),
+                    'alto_mm' => $altoCorte,
 
                     // El renglon que cierra la adicion: el TOTAL corre su misma
                     // suerte cuando se decide que se imprime y que no.
                     'renglon_id' => $renglon->id,
                 ];
-                $ocupadas++;
             }
 
-            $estado = $estadoDeHoja[$numero] ?? null;
+            // Lo que gastan las lineas de apertura y cierre de la hoja.
+            $usadoMm += $this->reservaDeHoja($numero, $escala);
+
+            $banda = GeometriaTarjeta::bandaMm($cara);
 
             $hojas[] = [
                 'numero' => $numero,
-                'cara' => Tarjeta::caraDeHoja($numero),
+                'cara' => $cara,
                 'papel' => Tarjeta::papelDeHoja($numero),
                 'renglones' => $delaHoja->values(),
 
-
                 'filas' => $filas,
-
 
                 'vienen' => $vienen,
                 'van' => $saldoAcumulado,
-
 
                 'total_papel' => $numero === array_key_last($asignacion) ? $totalDelPapel : null,
 
@@ -95,8 +103,18 @@ class PaginadorTarjeta
                 // Si la hoja ya termina con un TOTAL de adicion, el cierre de
                 // hoja repetiria el mismo numero justo debajo.
                 'termina_en_total' => ($filas !== [] && end($filas)['tipo'] === 'total'),
-                'capacidad' => $porHoja,
-                'libres' => max(0, $porHoja - $ocupadas),
+
+                // La hoja se mide en milimetros de papel, no en cantidad de
+                // bienes: lo que gasta un renglon depende de cuantas lineas
+                // necesite su descripcion.
+                'banda_mm' => $banda,
+                'usado_mm' => round($usadoMm, 2),
+                'libres_mm' => round($banda - $usadoMm, 2),
+                'escala' => $escala,
+
+                // Cuanto habria que apretar el texto para que la hoja cierre.
+                // Null cuando ya cabe, o cuando ni apretando alcanza.
+                'escala_sugerida' => $this->escalaParaQueQuepa($usadoMm, $banda, $escala),
                 'tiene_pendientes' => $delaHoja->contains(fn (TarjetaRenglon $r) => ! $r->yaSeImprimio()),
 
                 // Una hoja cerrada ya no admite bienes y lleva su linea de VAN.
@@ -115,7 +133,6 @@ class PaginadorTarjeta
         return $hojas;
     }
 
-   
     private function cierresDeAdicion(Collection $renglones): array
     {
         $lista = $renglones->values();
@@ -168,66 +185,129 @@ class PaginadorTarjeta
      * @param  array<int, true>  $cierres
      * @return array<int, Collection<int, TarjetaRenglon>>
      */
-    private function repartirEnHojas(Collection $renglones, int $porHoja, array $cierres): array
+    private function repartirEnHojas(Collection $renglones, array $cierres, array $estadoDeHoja): array
     {
         $hojas = [];
 
-        // Primero los que ya tienen hoja asignada: su lugar en el papel es fijo.
-        foreach ($renglones->filter(fn (TarjetaRenglon $r) => $r->hoja_fisica !== null) as $renglon) {
+        // Lo que ya salio impreso no se mueve: su lugar en el papel es fijo y
+        // hay una hoja firmada que lo respalda. Lo que todavia no se imprimio se
+        // reparte midiendo, aunque traiga una hoja asignada de antes: esa
+        // asignacion se hizo contando renglones y por eso no cuadraba.
+        $fijos = $renglones->filter(
+            fn (TarjetaRenglon $r) => $r->hoja_fisica !== null && $r->yaSeImprimio()
+        );
+
+        foreach ($fijos as $renglon) {
             $hojas[(int) $renglon->hoja_fisica][] = $renglon;
         }
 
-        $pendientes = $renglones->filter(fn (TarjetaRenglon $r) => $r->hoja_fisica === null);
+        $pendientes = $renglones->reject(
+            fn (TarjetaRenglon $r) => $r->hoja_fisica !== null && $r->yaSeImprimio()
+        );
 
         if ($pendientes->isEmpty()) {
             return $this->ordenarYColeccionar($hojas);
         }
 
-       
+        // Milimetros que lleva gastados cada hoja.
         $usado = [];
 
         foreach ($hojas as $numero => $delaHoja) {
-            $usado[$numero] = $this->espacio($delaHoja, $cierres);
+            $escala = $estadoDeHoja[$numero]?->escala ?? 1.0;
+            $usado[$numero] = $this->espacio($delaHoja, $cierres, $escala)
+                + $this->reservaDeHoja($numero, $escala);
         }
 
-       
         $hojaActual = $hojas === [] ? 1 : max(array_keys($hojas));
+        $escalaActual = $estadoDeHoja[$hojaActual]?->escala ?? 1.0;
+        $usado[$hojaActual] ??= $this->reservaDeHoja($hojaActual, $escalaActual);
 
-        if (($usado[$hojaActual] ?? 0) >= $porHoja) {
+        if ($usado[$hojaActual] >= $this->bandaDe($hojaActual)) {
             $hojaActual++;
+            $escalaActual = $estadoDeHoja[$hojaActual]?->escala ?? 1.0;
+            $usado[$hojaActual] ??= $this->reservaDeHoja($hojaActual, $escalaActual);
         }
 
         foreach ($pendientes as $renglon) {
             // El renglon y el TOTAL que lo sigue no se separan: si no caben los
             // dos, pasan juntos a la hoja siguiente.
-            $peso = isset($cierres[$renglon->id]) ? 2 : 1;
+            $alto = $this->medidor->altoDeRenglon($renglon, $escalaActual);
 
-            if (($usado[$hojaActual] ?? 0) + $peso > $porHoja && ($usado[$hojaActual] ?? 0) > 0) {
+            if (isset($cierres[$renglon->id])) {
+                $alto += $this->medidor->altoDeCorte($escalaActual);
+            }
+
+            $tieneAlgo = ($hojas[$hojaActual] ?? []) !== [];
+
+            if ($this->bandaDe($hojaActual) < $usado[$hojaActual] + $alto && $tieneAlgo) {
                 $hojaActual++;
+                $escalaActual = $estadoDeHoja[$hojaActual]?->escala ?? 1.0;
+                $usado[$hojaActual] ??= $this->reservaDeHoja($hojaActual, $escalaActual);
             }
 
             $hojas[$hojaActual][] = $renglon;
-            $usado[$hojaActual] = ($usado[$hojaActual] ?? 0) + $peso;
+            $usado[$hojaActual] += $alto;
         }
 
         return $this->ordenarYColeccionar($hojas);
     }
 
+    /** Milimetros de papel disponibles en una hoja, segun sea frente o reverso. */
+    private function bandaDe(int $numero): float
+    {
+        return GeometriaTarjeta::bandaMm(Tarjeta::caraDeHoja($numero));
+    }
+
     /**
-     * Renglones de papel que gasta un grupo de lineas, contando los TOTAL.
+     * Lo que la hoja gasta antes de empezar con los bienes.
+     *
+     * De la segunda hoja en adelante arranca con el VIENEN, y toda hoja que se
+     * cierre lleva su linea de VAN o de TOTAL al pie.
+     */
+    private function reservaDeHoja(int $numero, float $escala): float
+    {
+        $lineas = $numero > 1 ? 2 : 1;
+
+        return $this->medidor->altoDeLineas(1, $escala) * $lineas;
+    }
+
+    /**
+     * Milimetros de papel que gasta un grupo de renglones, contando los TOTAL.
      *
      * @param  array<int, TarjetaRenglon>  $delaHoja
      * @param  array<int, true>  $cierres
      */
-    private function espacio(array $delaHoja, array $cierres): int
+    private function espacio(array $delaHoja, array $cierres, float $escala): float
     {
-        $espacio = 0;
+        $espacio = 0.0;
 
         foreach ($delaHoja as $renglon) {
-            $espacio += isset($cierres[$renglon->id]) ? 2 : 1;
+            $espacio += $this->medidor->altoDeRenglon($renglon, $escala);
+
+            if (isset($cierres[$renglon->id])) {
+                $espacio += $this->medidor->altoDeCorte($escala);
+            }
         }
 
         return $espacio;
+    }
+
+    /**
+     * Cuanto habria que apretar el texto para que la hoja cierre.
+     *
+     * Devuelve null cuando ya cabe como esta, y tambien cuando ni apretando al
+     * minimo alcanza: ahi lo que corresponde es pasar renglones a la hoja
+     * siguiente, no seguir achicando hasta que no se lea.
+     */
+    private function escalaParaQueQuepa(float $usado, float $banda, float $escala): ?float
+    {
+        if ($usado <= $banda || $usado <= 0.0) {
+            return null;
+        }
+
+        $necesaria = floor(($banda / $usado) * $escala * 100) / 100;
+
+        return $necesaria >= GeometriaTarjeta::ESCALA_MINIMA ? $necesaria : null;
     }
 
     /**

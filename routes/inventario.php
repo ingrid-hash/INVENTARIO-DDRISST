@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Inventario\BajaController;
 use App\Http\Controllers\Inventario\BienController;
 use App\Http\Controllers\Inventario\CertificacionController;
 use App\Http\Controllers\Inventario\CertificacionFormatoController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\Inventario\ImportacionController;
 use App\Http\Controllers\Inventario\RenglonController;
 use App\Http\Controllers\Inventario\ReporteController;
 use App\Http\Controllers\Inventario\TarjetaController;
+use App\Http\Controllers\Inventario\TrasladoController;
 use App\Http\Controllers\Inventario\UnidadServicioController;
 use Illuminate\Support\Facades\Route;
 
@@ -81,6 +83,8 @@ Route::middleware('auth')->prefix('inventario')->name('inventario.')->group(func
     Route::middleware('permission:tarjetas.imprimir')->group(function () {
         Route::get('tarjetas/{tarjeta}/imprimir', [TarjetaController::class, 'imprimir'])
             ->name('tarjetas.imprimir');
+        Route::get('tarjetas/{tarjeta}/pdf', [TarjetaController::class, 'pdf'])
+            ->name('tarjetas.pdf');
         Route::post('tarjetas/{tarjeta}/impresion', [TarjetaController::class, 'marcarImpreso'])
             ->name('tarjetas.impresion');
 
@@ -140,12 +144,35 @@ Route::middleware('auth')->prefix('inventario')->name('inventario.')->group(func
     Route::middleware('permission:reportes.exportar')
         ->get('reportes/excel', [ReporteController::class, 'exportar'])->name('reportes.excel');
 
+    // --- Bajas de bienes
+    Route::middleware('permission:bajas.ver')
+        ->get('bajas', [BajaController::class, 'index'])->name('bajas.index');
+
+    Route::middleware('permission:bajas.solicitar')
+        ->post('bajas', [BajaController::class, 'store'])->name('bajas.store');
+
+    // Autorizar va con permiso aparte de solicitar: quien pide la baja no
+    // tiene por que ser quien la aprueba.
+    Route::middleware('permission:bajas.autorizar')->group(function () {
+        Route::post('bajas/{baja}/autorizar', [BajaController::class, 'autorizar'])
+            ->name('bajas.autorizar');
+        Route::post('bajas/{baja}/rechazar', [BajaController::class, 'rechazar'])
+            ->name('bajas.rechazar');
+    });
+
+    // --- Traslados de bienes entre empleados
+    Route::middleware('permission:asignaciones.ver')
+        ->get('traslados', [TrasladoController::class, 'index'])->name('traslados.index');
+
+    Route::middleware('permission:asignaciones.crear')
+        ->post('traslados', [TrasladoController::class, 'store'])->name('traslados.store');
+
     // --- Certificaciones de inventario
     Route::middleware('permission:certificaciones.ver')->group(function () {
         Route::get('certificaciones', [CertificacionController::class, 'index'])
             ->name('certificaciones.index');
-        Route::get('certificaciones/{certificacion}/imprimir', [CertificacionController::class, 'imprimir'])
-            ->name('certificaciones.imprimir');
+        Route::get('certificaciones/{certificacion}/pdf', [CertificacionController::class, 'descargar'])
+            ->name('certificaciones.pdf');
     });
 
     Route::middleware('permission:certificaciones.emitir')
