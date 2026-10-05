@@ -555,6 +555,7 @@ class TarjetaController extends Controller
                 'municipio' => $tarjeta->empleado->unidadServicio?->municipio,
                 'departamento' => $tarjeta->empleado->unidadServicio?->departamento,
                 'nombre' => $tarjeta->empleado->nombre_completo,
+                'cargo' => $tarjeta->empleado->cargo,
                 'area_trabajo' => $tarjeta->empleado->area_trabajo,
             ],
             'hojas' => array_map(fn (array $hoja) => [

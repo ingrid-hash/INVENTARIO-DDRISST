@@ -500,9 +500,9 @@
                         <td colspan="2">
                             <span class="rotulo">UNIDAD DE SERVICIO:</span> {{ $unidad?->nombre }}
                         </td>
-                        <td><span class="rotulo">MUNICIPIO:</span> {{ $unidad?->municipio }}</td>
+                        <td><span class="rotulo">DEPARTAMENTO:</span> {{ $unidad?->departamento }}</td>
                         <td style="text-align: right">
-                            <span class="rotulo">DEPTO:</span> {{ $unidad?->departamento }}
+                            <span class="rotulo">MUNICIPIO:</span> {{ $unidad?->municipio }}
                         </td>
                     </tr>
                     <tr>
@@ -510,7 +510,7 @@
                             <span class="rotulo">NOMBRE:</span> {{ $empleado->nombre_completo }}
                         </td>
                         <td colspan="2" style="text-align: right">
-                            <span class="rotulo">DEPTO:</span> {{ $empleado->area_trabajo }}
+                            <span class="rotulo">CARGO:</span> {{ $empleado->cargo }}
                         </td>
                     </tr>
                 </table>

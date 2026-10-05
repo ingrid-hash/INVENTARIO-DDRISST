@@ -98,6 +98,7 @@ interface Props {
         departamento: string | null;
         nombre: string;
         area_trabajo: string | null;
+        cargo: string | null;
     };
     hojas: Hoja[];
     geometria: Geometria;
@@ -436,8 +437,8 @@ export default function CalceTarjeta({ tarjeta, encabezado, hojas, geometria }: 
                                 }}
                             >
                                 <b>UNIDAD DE SERVICIO:</b> {encabezado.unidad_servicio} &nbsp;
-                                <b>MUNICIPIO:</b> {encabezado.municipio} &nbsp;
-                                <b>DEPTO:</b> {encabezado.departamento}
+                                <b>DEPARTAMENTO:</b> {encabezado.departamento} &nbsp;
+                                <b>MUNICIPIO:</b> {encabezado.municipio}
                             </div>
 
                             <div
@@ -450,7 +451,7 @@ export default function CalceTarjeta({ tarjeta, encabezado, hojas, geometria }: 
                                 }}
                             >
                                 <b>NOMBRE:</b> {encabezado.nombre} &nbsp;
-                                <b>DEPTO:</b> {encabezado.area_trabajo ?? <span className="opacity-50">(sin dato)</span>}
+                                <b>CARGO:</b> {encabezado.cargo ?? <span className="opacity-50">(sin dato)</span>}
                             </div>
 
                             {/* Rejilla horizontal */}

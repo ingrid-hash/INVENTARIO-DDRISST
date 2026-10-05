@@ -43,6 +43,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+# Sin esto PHP arranca con sus valores minimos: 128 MB de memoria y 2 MB de
+# subida, con lo que no se genera un PDF ni se carga un Excel.
+COPY docker/php.ini /usr/local/etc/php/conf.d/inventario.ini
+
 WORKDIR /app
 
 # Las dependencias primero y el codigo despues: asi un cambio en el codigo no
