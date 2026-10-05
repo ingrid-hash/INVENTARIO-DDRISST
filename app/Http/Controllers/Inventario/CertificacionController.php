@@ -8,13 +8,15 @@ use App\Models\Bien;
 use App\Models\Certificacion;
 use App\Models\CertificacionFormato;
 use App\Services\CertificacionService;
-use Illuminate\Contracts\View\View;
+use Dompdf\Dompdf;
+use Dompdf\Options;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CertificacionController extends Controller
 {
@@ -339,13 +341,52 @@ class CertificacionController extends Controller
     }
 
     /**
-     * Vista para imprimir o guardar como PDF desde el navegador, en carta y con
-     * el membrete de la institucion.
+     * Descarga la certificacion en PDF.
+     *
+     * Se arma aqui y no con la impresion del navegador porque el navegador
+     * agrega su propio encabezado con la fecha y la direccion de la pagina, y
+     * esto es un documento que se entrega firmado.
      */
-    public function imprimir(Certificacion $certificacion): View
+    public function descargar(Certificacion $certificacion): StreamedResponse
     {
         $certificacion->load('bienes');
 
-        return view('certificaciones.imprimir', ['certificacion' => $certificacion]);
+        $html = view('certificaciones.imprimir', [
+            'certificacion' => $certificacion,
+            // Las imagenes van incrustadas: asi el PDF no depende de que el
+            // servidor este alcanzable desde donde se genera.
+            'logo' => $this->incrustar('img/membrete-logo.png'),
+            'linea' => $this->incrustar('img/membrete-linea.png'),
+        ])->render();
+
+        $dompdf = new Dompdf(new Options(['isRemoteEnabled' => false, 'defaultFont' => 'DejaVu Sans']));
+        $dompdf->setPaper('letter', 'portrait');
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->render();
+
+        $archivo = 'Certificacion '.$certificacion->numero.'.pdf';
+        $contenido = (string) $dompdf->output();
+
+        AuditLog::registrar(
+            evento: 'certificacion.descargada',
+            descripcion: 'Se descargó en PDF la certificación '.$certificacion->numero,
+            datos: ['certificacion_id' => $certificacion->id],
+        );
+
+        return response()->streamDownload(
+            fn () => print ($contenido),
+            $archivo,
+            ['Content-Type' => 'application/pdf'],
+        );
+    }
+
+    /**
+     * Una imagen de public/ convertida en dato incrustable.
+     */
+    private function incrustar(string $ruta): string
+    {
+        $archivo = public_path($ruta);
+
+        return 'data:image/png;base64,'.base64_encode((string) file_get_contents($archivo));
     }
 }
