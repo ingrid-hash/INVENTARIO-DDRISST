@@ -9,6 +9,12 @@ if [ -n "${RENDER_EXTERNAL_URL}" ]; then
     export APP_URL="${RENDER_EXTERNAL_URL}"
 fi
 
+if [ -z "${APP_KEY}" ]; then
+    echo "FALTA LA VARIABLE APP_KEY."
+    echo "Generela con: php artisan key:generate --show"
+    exit 1
+fi
+
 echo "==> Migrando la base de datos"
 php artisan migrate --force
 

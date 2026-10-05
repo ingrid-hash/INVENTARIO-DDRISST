@@ -51,6 +51,16 @@ COPY --from=pantallas /app/public/build ./public/build
 
 RUN composer dump-autoload --optimize --no-dev \
     && chmod +x docker/entrada.sh \
+    # Las carpetas de trabajo de Laravel van vacias en el repositorio, asi que
+    # no viajan en la imagen. Si no existen, al arrancar falla con "Please
+    # provide a valid cache path".
+    && mkdir -p storage/framework/cache/data \
+               storage/framework/sessions \
+               storage/framework/views \
+               storage/framework/testing \
+               storage/logs \
+               storage/app/private \
+               bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
 ENV PORT=8080
