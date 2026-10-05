@@ -18,6 +18,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // Publicado en internet, el sistema queda detras del proxy del
+        // proveedor. Sin esto Laravel cree que la visita llego por HTTP y arma
+        // los enlaces mal, ademas de no mandar la cookie de sesion segura.
+        $middleware->trustProxies(at: '*');
+
         $middleware->web(append: [
             EnsureUserIsActive::class,
             EnsurePasswordIsChanged::class,

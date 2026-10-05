@@ -1,0 +1,78 @@
+# Configuracion del despliegue en Render.
+#
+# Teniendo este archivo en el repositorio no hay que llenar la pantalla de
+# Render a mano: desde "New > Blueprint" lee esto y arma los dos servicios.
+
+databases:
+  - name: inventario-base
+    databaseName: inventario
+    user: inventario
+    plan: free
+
+services:
+  - type: web
+    name: inventario-ddrisst
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+
+    # Laravel ya trae esta ruta: responde sin tocar la base de datos.
+    healthCheckPath: /up
+
+    envVars:
+      - key: APP_NAME
+        value: Inventario DDRISST
+
+      - key: APP_ENV
+        value: production
+
+      - key: APP_DEBUG
+        value: false
+
+      # Se pega a mano una sola vez. Sale de ejecutar en la maquina:
+      #     php artisan key:generate --show
+      # Si cambia, se cierran todas las sesiones abiertas.
+      - key: APP_KEY
+        sync: false
+
+      - key: LOG_CHANNEL
+        value: stderr
+
+      - key: DB_CONNECTION
+        value: pgsql
+
+      # Estos cinco los llena Render solo, de la base de arriba.
+      - key: DB_HOST
+        fromDatabase:
+          name: inventario-base
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: inventario-base
+          property: port
+      - key: DB_DATABASE
+        fromDatabase:
+          name: inventario-base
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: inventario-base
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: inventario-base
+          property: password
+
+      - key: SESSION_DRIVER
+        value: database
+
+      # En internet el sitio va por HTTPS, asi que la cookie de sesion no debe
+      # viajar nunca en claro.
+      - key: SESSION_SECURE_COOKIE
+        value: true
+
+      # pg_dump viene en la imagen; esta es su ruta ahi.
+      - key: PG_DUMP_PATH
+        value: /usr/bin/pg_dump
