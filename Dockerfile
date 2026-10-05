@@ -23,7 +23,10 @@ FROM php:8.3-cli
 #   zip, gd           leer los Excel y dibujar el membrete de los PDF
 #   bcmath, intl      cuentas y formato de numeros
 #   opcache           que no vuelva a compilar el PHP en cada visita
-# Y postgresql-client, que trae pg_dump: sin el no funcionan los respaldos.
+#
+# libpq-dev son las cabeceras de PostgreSQL, que PHP necesita para compilar
+# pdo_pgsql; postgresql-client son los programas, y de ahi sale el pg_dump con
+# el que el sistema hace los respaldos. Hacen falta los dos.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         unzip \
@@ -32,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libjpeg62-turbo-dev \
         libfreetype6-dev \
         libicu-dev \
+        libpq-dev \
         postgresql-client \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" pdo_pgsql pgsql zip gd bcmath intl opcache \
